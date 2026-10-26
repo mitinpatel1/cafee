@@ -1,7 +1,9 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { protect } = require('../middleware/auth');
+
+const { protect, authorize } = require("../middleware/auth");
+const { avatarUploadMiddleware } = require("../middleware/avatarUpload");
 
 const router = express.Router();
 
@@ -12,6 +14,11 @@ const generateToken = (userId) => {
   });
 };
 
+const {
+  getImageExtension,
+  saveAvatar,
+  removeAvatarFile,
+} = require("../utils/avatarStorage");
 // ────────────────── POST /api/auth/register ──────────────────
 router.post('/register', async (req, res) => {
   try {
@@ -113,5 +120,120 @@ router.put('/profile', protect, async (req, res) => {
 router.post('/wallet/recharge', protect, (_req, res) => {
   res.status(503).json({ success: false, message: 'Wallet recharge is unavailable until a verified payment provider is configured.' });
 });
+
+
+
+// POST /api/auth/profile/avatar
+
+router.post(
+  "/profile/avatar",
+  protect,
+  authorize("user", "employee"),
+  avatarUploadMiddleware,
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Please choose a photo.",
+      });
+    }
+
+    const extension = getImageExtension(req.file.buffer);
+
+    if (!extension) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image. Use JPG, PNG or WebP.",
+      });
+    }
+
+    let newAvatar = "";
+
+    try {
+      const user = await User.findById(req.user._id);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "Account not found.",
+        });
+      }
+
+      const oldAvatar = user.avatar;
+
+      newAvatar = await saveAvatar(
+        user._id,
+        req.file.buffer,
+        extension
+      );
+
+      user.avatar = newAvatar;
+
+      await user.save();
+
+      await removeAvatarFile(oldAvatar);
+
+      return res.json({
+        success: true,
+        message: "Profile photo updated.",
+        user: user.toJSON(),
+      });
+    } catch (error) {
+      if (newAvatar) {
+        await removeAvatarFile(newAvatar);
+      }
+
+      console.error("Avatar upload failed:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Could not save profile photo.",
+      });
+    }
+  }
+);
+
+
+// DELETE /api/auth/profile/avatar
+
+router.delete(
+  "/profile/avatar",
+  protect,
+  authorize("user", "employee"),
+  async (req, res) => {
+    try {
+      const user = await User.findById(req.user._id);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "Account not found.",
+        });
+      }
+
+      const oldAvatar = user.avatar;
+
+      user.avatar = "";
+
+      await user.save();
+
+      await removeAvatarFile(oldAvatar);
+
+      return res.json({
+        success: true,
+        message: "Profile photo removed.",
+        user: user.toJSON(),
+      });
+    } catch (error) {
+      console.error("Avatar deletion failed:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Could not remove profile photo.",
+      });
+    }
+  }
+);
+
 
 module.exports = router;

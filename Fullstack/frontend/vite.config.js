@@ -1,3 +1,4 @@
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -14,10 +15,15 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+
+      "/uploads": {
+        target: "http://127.0.0.1:5600",
+        changeOrigin: true,
+      },
+
       "/api": {
         target: "http://127.0.0.1:5600",
         changeOrigin: true,
-        secure: false,
       },
     },
   },

@@ -3,6 +3,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
 const fs = require('fs');
+const { AVATAR_DIR } = require("./utils/avatarStorage");
 
 const app = express();
 const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173')
@@ -34,4 +35,20 @@ app.use((err,_req,res,_next) => {
   const status = err.status || (err.message === 'Origin is not permitted by CORS' ? 403 : 500);
   return res.status(status).json({success:false,message: status === 500 ? 'Internal server error.' : err.message});
 });
+// Add after creating the existing Express app:
+app.use(
+  "/uploads/avatars",
+  express.static(AVATAR_DIR, {
+    index: false,
+    dotfiles: "deny",
+    maxAge: "7d",
+    immutable: true,
+    setHeaders: (res) => {
+      res.setHeader(
+        "X-Content-Type-Options",
+        "nosniff"
+      );
+    },
+  })
+);
 module.exports = { app, corsOptions };

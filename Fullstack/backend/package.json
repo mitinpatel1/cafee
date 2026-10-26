@@ -15,7 +15,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "OfficeBite Cafeteria Backend \u2014 Express + MongoDB + Socket.io",
+  "description": "OfficeBite Cafeteria Backend — Express + MongoDB + Socket.io",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -23,6 +23,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",
+    "multer": "^2.5.0",
     "socket.io": "^4.8.1",
     "uuid": "^11.0.5"
   },
