@@ -25,7 +25,7 @@ export const Navbar = () => {
       {/* Demo role switcher (keep for testing, remove for production) */}
       <div className="ob-demo">
         <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-          <Sparkles size={12} color="#ff5722" /> Demo mode
+          <Sparkles size={12} color="#fbb829" /> Demo mode
         </span>
         <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
           <button className={user?.role === 'employee' ? 'on' : ''} onClick={() => quickLoginAs('employee')}>Employee</button>
@@ -64,7 +64,7 @@ export const Navbar = () => {
                 <img
                   src={user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
                   alt={user?.name || 'Account'}
-                  style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '2px solid #ff5722', background: '#2a2a31' }}
+                  style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbb829', background: '#2a2a31' }}
                 />
               </button>
               {dropdown && (
@@ -75,7 +75,7 @@ export const Navbar = () => {
                   </div>
                   <DropLink to="/profile" onClick={() => setDropdown(false)}><User size={15} /> Profile</DropLink>
                   <DropLink to="/my-orders" onClick={() => setDropdown(false)}><ShoppingBag size={15} /> My Orders</DropLink>
-                  {isStaffOrAdmin && <DropLink to="/admin" onClick={() => setDropdown(false)} color="#ff5722"><ShieldCheck size={15} /> Admin Dashboard</DropLink>}
+                  {isStaffOrAdmin && <DropLink to="/admin" onClick={() => setDropdown(false)} color="#fbb829"><ShieldCheck size={15} /> Admin Dashboard</DropLink>}
                   <button
                     onClick={() => { logout(); setDropdown(false); navigate('/login'); }}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.55rem .75rem', fontSize: '.85rem', color: '#ef4444', textAlign: 'left' }}
@@ -86,8 +86,10 @@ export const Navbar = () => {
               )}
             </div>
           ) : (
-            <Link to="/login" className="ob-tag-btn" style={{ padding: '.55rem 1.4rem .55rem 1.1rem', fontSize: '.82rem' }}>Sign in</Link>
+            <Link to="/login" className="ob-text-link">Login</Link>
           )}
+
+          <Link to="/menu" className="ob-btn sm">Book Your Order</Link>
 
           <button className="ob-menu-btn" onClick={() => setDrawer(!drawer)} aria-label="Toggle navigation">
             {drawer ? <X size={22} /> : <MenuIcon size={22} />}
@@ -101,7 +103,7 @@ export const Navbar = () => {
           <Link to="/menu" onClick={() => setDrawer(false)}>Menu</Link>
           <Link to="/my-orders" onClick={() => setDrawer(false)}>My Orders</Link>
           <Link to="/profile" onClick={() => setDrawer(false)}>Profile</Link>
-          {isStaffOrAdmin && <Link to="/admin" onClick={() => setDrawer(false)} style={{ color: '#ff5722' }}>Admin Panel</Link>}
+          {isStaffOrAdmin && <Link to="/admin" onClick={() => setDrawer(false)} style={{ color: '#fbb829' }}>Admin Panel</Link>}
         </div>
       )}
     </header>

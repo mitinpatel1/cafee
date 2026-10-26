@@ -46,7 +46,7 @@ export const MenuPage = () => {
           <h1>Cafeteria Menu</h1>
           <p>{search ? `Results for “${search}”` : 'Everything on the counter today. Prices include tax.'}</p>
         </div>
-        <div className="ob-tabs" role="tablist" style={{ margin: 0, background: '#fff' }}>
+        <div className="ob-tabs" role="tablist">
           {TABS.map((t) => (
             <button key={t} role="tab" aria-selected={category === t} className={category === t ? 'on' : ''} onClick={() => pick(t)}>{t}</button>
           ))}
@@ -77,7 +77,7 @@ export const MenuPage = () => {
           <div style={{ fontSize: '2.2rem' }}>🍽️</div>
           <h3>Nothing matches these filters</h3>
           <p style={{ marginBottom: '1rem', fontSize: '.88rem' }}>Try another category or clear the veg / non-veg filter.</p>
-          <button className="ob-tag-btn" onClick={reset}>Clear filters</button>
+          <button className="ob-btn" onClick={reset}>Clear filters</button>
         </div>
       ) : (
         <div className="ob-grid">
@@ -88,7 +88,7 @@ export const MenuPage = () => {
       {itemCount > 0 && (
         <div className="ob-tray" role="status">
           <span style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <ShoppingBag size={18} color="#ff5722" /> {itemCount} {itemCount === 1 ? 'item' : 'items'} · ₹{total}
+            <ShoppingBag size={18} color="#fbb829" /> {itemCount} {itemCount === 1 ? 'item' : 'items'} · ₹{total}
           </span>
           <Link to="/cart">View cart</Link>
         </div>

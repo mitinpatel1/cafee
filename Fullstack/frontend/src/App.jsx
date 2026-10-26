@@ -7,6 +7,7 @@ import { SocketProvider } from './context/SocketContext';
 import { Navbar } from './components/Navbar';
 import { AdminLayout } from './components/AdminLayout';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { UtensilsCrossed, MapPin, Clock, Phone } from 'lucide-react';
 import { NotificationToast } from './components/NotificationToast';
 
 import { LoginPage } from './pages/LoginPage';
@@ -36,17 +37,15 @@ const EmployeeLayout = ({ children }) => {
       <NotificationToast />
 
       <footer className="ob-footer">
-        <div className="ob-wrap ob-footer-in">
-          <div>
-            <div className="ob-logo"><span>Office<b>Bite</b></span></div>
-            <div style={{ marginTop: '.3rem' }}>Fresh cafeteria food with scheduled pickup.</div>
+        <div className="ob-wrap">
+          <div className="ob-logo"><span className="ob-logo-mark"><UtensilsCrossed size={19} /></span><span>Office<b>Bite</b></span></div>
+          <p>Fresh cafeteria food with scheduled pickup, so your lunch break is for eating and not for standing in line.</p>
+          <div className="ob-foot-links">
+            <span><MapPin size={14} /> Ground floor, Cafeteria</span>
+            <span><Clock size={14} /> Mon – Fri, 8:00 – 18:00</span>
+            <span><Phone size={14} /> Ext. 1020</span>
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <span>Counter 1: Meals</span>
-            <span>Counter 2: Snacks</span>
-            <span>Counter 3: Tea &amp; Coffee</span>
-          </div>
-          <div style={{ fontSize: '.78rem' }}>© {new Date().getFullYear()} OfficeBite</div>
+          <div className="ob-copy">© {new Date().getFullYear()} OfficeBite. Counter 1: Meals · Counter 2: Snacks · Counter 3: Tea &amp; Coffee</div>
         </div>
       </footer>
     </div>
