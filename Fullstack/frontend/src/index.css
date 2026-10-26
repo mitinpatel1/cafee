@@ -5,25 +5,25 @@
   --font-heading: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
 
-  /* WorkBites Signature Warm Orange Aesthetic (per Reference UI) */
-  --color-primary: #ff5722;
-  --color-primary-hover: #e64a19;
-  --color-primary-light: #fff2ee;
-  --color-primary-subtle: #fff7ed;
-  --color-primary-border: #fed7aa;
+  /* OfficeBite red + maroon visual system */
+  --color-primary: #b32638;
+  --color-primary-hover: #94192f;
+  --color-primary-light: #fff0f1;
+  --color-primary-subtle: #fff6f4;
+  --color-primary-border: #f6cbd0;
 
-  --color-secondary: #1e1e24;
-  --color-secondary-hover: #2b2b36;
+  --color-secondary: #5a102b;
+  --color-secondary-hover: #741632;
 
-  --color-accent: #f97316;
-  --color-accent-light: #ffedd5;
+  --color-accent: #c63b44;
+  --color-accent-light: #fce8e9;
 
   /* Backgrounds & Neutrals */
-  --bg-main: #f8f9fa;
+  --bg-main: #fffaf8;
   --bg-surface: #ffffff;
   --bg-surface-subtle: #f4f5f7;
-  --bg-dark: #18181b;
-  --bg-sidebar: #1e1e24;
+  --bg-dark: #330e23;
+  --bg-sidebar: #4d102b;
 
   /* Text Colors */
   --text-main: #18181b;
@@ -34,15 +34,15 @@
   /* Borders & Dividers */
   --border-subtle: #edf0f3;
   --border-medium: #e2e8f0;
-  --border-focus: #ff5722;
+  --border-focus: #b32638;
 
   /* Status Colors */
   --status-pending: #f59e0b;
   --status-pending-bg: #fffbeb;
   --status-pending-border: #fde68a;
 
-  --status-preparing: #ff5722;
-  --status-preparing-bg: #fff2ee;
+  --status-preparing: #b32638;
+  --status-preparing-bg: #fff0f1;
   --status-preparing-border: #fbd9cf;
 
   --status-ready: #10b981;
@@ -263,7 +263,7 @@ a {
    OfficeBite dark theme (Home + Menu): charcoal-navy surfaces, amber accent,
    hexagon motifs, dark plate cards.
    ===================================================================== */
-:root { --ob-accent: #fbb829; --ob-accent-hover: #f5a800; --ob-ink: #1d1e24; --hex: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+:root { --ob-accent: #b32638; --ob-accent-hover: #94192f; --ob-ink: #1d1e24; --hex: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .theme-dark {
   --d-bg: #25262d; --d-panel: #34353e; --d-panel-2: #2d2e36; --d-line: #43444e; --d-text: #f4f4f5; --d-muted: #a8a9b4;
   background: var(--d-bg); color: var(--d-text);
@@ -305,9 +305,6 @@ a {
 .ob-menu-btn { color: #fff; padding: 6px; }
 .ob-drawer { border-top: 1px solid #33343c; padding: 1rem 1.5rem 1.25rem; display: flex; flex-direction: column; gap: .9rem; font-weight: 600; background: #25262d; color: #fff; }
 @media (min-width: 960px) { .ob-pill { display: flex; } .ob-search { display: block; } .ob-menu-btn { display: none; } .ob-text-link { display: inline; } }
-.ob-demo { background: #1b1c21; color: #a8a9b4; font-size: .72rem; padding: .35rem 1.5rem; display: flex; gap: .5rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-.ob-demo button { background: #34353e; color: #fff; padding: .2rem .65rem; border-radius: 4px; font-size: .7rem; font-weight: 600; }
-.ob-demo button.on { background: var(--ob-accent); color: var(--ob-ink); }
 
 /* ---- Hero ---- */
 .ob-hero { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 2rem; padding: 4rem 0 3rem; }
@@ -442,3 +439,36 @@ a {
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .ob-btn { white-space: nowrap; }
 @media (max-width: 520px) { .ob-top .ob-actions .ob-btn { display: none; } }
+
+/* Dedicated account portals and real-data checkout */
+.portal-auth-wrap { min-height: 74vh; display: grid; place-items: center; padding: 3rem 1.25rem; background: #fbf9f5; }
+.portal-auth-card { width: 100%; max-width: 440px; padding: 2.25rem; background: #fff; border: 1px solid #eee7db; border-radius: 18px; box-shadow: 0 18px 45px rgba(25,22,18,.07); color: #221d19; }
+.portal-auth-card h1 { font-size: 1.75rem; margin: .6rem 0; font-weight: 800; }
+.portal-auth-card p { font-size: .9rem; color: #706860; }
+.portal-auth-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 12px; background: #fff0e9; color: #9b1c40; }
+.portal-form { display: flex; flex-direction: column; gap: 1.1rem; margin-top: 1.75rem; }
+.portal-form label, .portal-checkout-form label { display: flex; flex-direction: column; gap: .4rem; font-weight: 650; color: #2b231d; font-size: .87rem; }
+.portal-form input, .portal-checkout-form input, .portal-checkout-form select, .portal-checkout-form textarea { width: 100%; padding: .8rem .9rem; border: 1px solid #d8d1c8; border-radius: 9px; background: #fff; color: #2b231d; font: inherit; }
+.portal-form .btn, .portal-checkout-form .btn { justify-content: center; padding: .85rem; }
+.portal-error { display: flex; align-items: center; gap: .5rem; padding: 1rem; margin: 1rem 0; border: 1px solid #fca5a5; background: #fff1f2; border-radius: 10px; color: #a11b24; }
+.portal-auth-foot { margin: 1.3rem 0; text-align: center; }
+.portal-auth-foot button, .portal-auth-foot a, .portal-back { color: #8a1636; font-weight: 700; text-decoration: underline; }
+.portal-back { display: inline-block; margin-top: 1rem; font-size: .86rem; }
+.portal-checkout { padding-top: 2.5rem; padding-bottom: 4rem; color: #241e19; }
+.portal-checkout h1 { font-size: 2rem; font-weight: 800; margin-top: .9rem; }
+.portal-checkout > p { color: #73675e; margin: .4rem 0 2rem; }
+.portal-checkout-grid { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(260px,1fr); gap: 2rem; }
+.portal-checkout-form, .portal-order-summary { padding: 1.5rem; background: #fff; border: 1px solid #eee7db; border-radius: 15px; }
+.portal-checkout-form { display: flex; flex-direction: column; gap: 1.25rem; }
+.portal-order-summary h2 { font-size: 1.15rem; margin-bottom: 1.2rem; }
+.sum-line { display: flex; justify-content: space-between; gap: 1rem; padding: .55rem 0; font-size: .9rem; }
+.sum-total { font-size: 1.1rem; }
+.pay-at-counter { display: flex; gap: .8rem; align-items: start; padding: 1rem; border-radius: 10px; background: #f9f7f1; color: #26201c; }
+.pay-at-counter p { margin-top: .2rem; font-size: .84rem; color: #766c61; }
+.site-notice { border: 1px solid #a7e2c7; background: #effdf4; color: #145a36; border-radius: 10px; padding: 1rem; margin-top: 1.5rem; }
+.branch-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 1rem; }
+.branch-card { border: 1px solid #e8e5df; background: #fff; padding: 1.4rem; border-radius: 14px; color: #261e18; }
+.branch-card h3 { margin: .6rem 0 .35rem; font-size: 1.15rem; }
+.branch-card p { font-size: .86rem; color: #6c625a; margin: .35rem 0; }
+.branch-card small { color: #73675e; }
+@media (max-width: 720px) { .portal-checkout-grid {grid-template-columns:1fr} .portal-auth-card{padding:1.6rem} }

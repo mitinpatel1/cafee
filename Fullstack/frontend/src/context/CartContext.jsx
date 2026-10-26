@@ -6,7 +6,7 @@ export const CartProvider = ({ children }) => {
   const [cartItems, setCartItems] = useState(() => {
     try {
       const saved = localStorage.getItem('officebite_cart');
-      return saved ? JSON.parse(saved) : [];
+      return saved ? (JSON.parse(saved) || []).filter(item => /^[a-f0-9]{24}$/i.test(item.menuItemId || '')) : [];
     } catch {
       return [];
     }

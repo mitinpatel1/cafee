@@ -52,18 +52,10 @@ export const api = {
     return handleResponse(res);
   },
 
-  rechargeWallet: async (amount) => {
-    const res = await fetch(`${API_BASE}/auth/wallet/recharge`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ amount }),
-    });
-    return handleResponse(res);
-  },
-
   // Menu
   getMenu: async (params = {}) => {
     const searchParams = new URLSearchParams();
+    if (params.franchiseId) searchParams.append('franchiseId', params.franchiseId);
     if (params.category && params.category !== 'All') searchParams.append('category', params.category);
     if (params.search) searchParams.append('search', params.search);
     if (params.vegOnly) searchParams.append('vegOnly', 'true');
@@ -159,15 +151,19 @@ export const api = {
     return handleResponse(res);
   },
 
-  updateOrderStatus: async (id, status) => {
+  updateOrderStatus: async (id, status, readyInMinutes) => {
     const res = await fetch(`${API_BASE}/orders/admin/${id}/status`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, readyInMinutes }),
     });
     return handleResponse(res);
   },
 
+  collectCounterPayment: async (id, reference) => handleResponse(await fetch(`${API_BASE}/orders/admin/${id}/counter-payment`, {
+    method:'PATCH', headers:getAuthHeaders(), body:JSON.stringify({reference}),
+  })),
+  getPaymentConfig: async () => handleResponse(await fetch(`${API_BASE}/payments/config`)),
   // Inventory
   getInventory: async () => {
     const res = await fetch(`${API_BASE}/admin/inventory`, {
@@ -220,11 +216,11 @@ export const api = {
     return handleResponse(res);
   },
 
-  verifyPayment: async (orderId, paymentId, gatewayOrderId, paymentMethod) => {
+  verifyPayment: async (orderId, razorpay_payment_id, razorpay_order_id, razorpay_signature) => {
     const res = await fetch(`${API_BASE}/payments/verify`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ orderId, paymentId, gatewayOrderId, paymentMethod }),
+      body: JSON.stringify({ orderId, razorpay_payment_id, razorpay_order_id, razorpay_signature }),
     });
     return handleResponse(res);
   },
@@ -235,4 +231,63 @@ export const api = {
     });
     return handleResponse(res);
   },
+
+  getActiveFranchises: async () => handleResponse(await fetch(`${API_BASE}/franchise/public`)),
+  getMyFranchises: async () => handleResponse(await fetch(`${API_BASE}/franchise/me`, { headers: getAuthHeaders() })),
+  getFranchiseOrders: async () => handleResponse(await fetch(`${API_BASE}/franchise/orders`, { headers: getAuthHeaders() })),
+  updateFranchiseOrderStatus: async (id, status) => handleResponse(await fetch(`${API_BASE}/franchise/orders/${id}/status`, {
+    method: 'PATCH', headers: getAuthHeaders(), body: JSON.stringify({ status }),
+  })),
+  collectFranchiseCash: async (id) => handleResponse(await fetch(`${API_BASE}/franchise/orders/${id}/collect-cash`, {
+    method: 'PATCH', headers: getAuthHeaders(),
+  })),
+  // Franchise owner and service admin
+  getFranchiseDashboard: async () => {
+    const res = await fetch(`${API_BASE}/franchise/dashboard/stats`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  getAllFranchises: async () => {
+    const res = await fetch(`${API_BASE}/franchise/all`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  registerFranchise: async (data) => {
+    const res = await fetch(`${API_BASE}/franchise/register`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
+  updateFranchise: async (id, data) => {
+    const res = await fetch(`${API_BASE}/franchise/${id}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
+  deleteFranchise: async (id) => {
+    const res = await fetch(`${API_BASE}/franchise/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  updateFranchiseStatus: async (id, status) => {
+    const res = await fetch(`${API_BASE}/franchise/${id}/status`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status }),
+    });
+    return handleResponse(res);
+  }
 };

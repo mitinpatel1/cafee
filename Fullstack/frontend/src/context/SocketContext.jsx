@@ -53,7 +53,7 @@ const playNotificationSound = (type = 'default') => {
 };
 
 export const SocketProvider = ({ children }) => {
-  const { user, isStaffOrAdmin } = useAuth();
+  const { user, token, isStaffOrAdmin } = useAuth();
   const [socket, setSocket] = useState(null);
   const [activeAlert, setActiveAlert] = useState(null);
   const [notifications, setNotifications] = useState([]);
@@ -61,7 +61,9 @@ export const SocketProvider = ({ children }) => {
   const alertTimeoutRef = useRef(null);
 
   useEffect(() => {
+    if (!token || !user) { setSocket(null); return; }
     const socketInstance = io(window.location.origin, {
+      auth: { token },
       transports: ['websocket', 'polling'],
     });
 
@@ -74,7 +76,7 @@ export const SocketProvider = ({ children }) => {
     return () => {
       socketInstance.disconnect();
     };
-  }, []);
+  }, [token, user?._id]);
 
   // Join rooms based on auth state
   useEffect(() => {

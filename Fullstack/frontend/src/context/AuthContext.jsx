@@ -56,30 +56,6 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  // Quick switch credentials helper for easy testing
-  const quickLoginAs = async (roleType) => {
-    let email = 'employee@officebite.com';
-    let password = 'employee123';
-
-    if (roleType === 'admin') {
-      email = 'admin@officebite.com';
-      password = 'admin123';
-    } else if (roleType === 'staff') {
-      email = 'staff@officebite.com';
-      password = 'staff123';
-    }
-
-    return await login(email, password);
-  };
-
-  const rechargeWallet = async (amount) => {
-    const res = await api.rechargeWallet(amount);
-    if (res.success) {
-      setUser((prev) => ({ ...prev, balance: res.balance }));
-      return res;
-    }
-  };
-
   const updateProfile = async (data) => {
     const res = await api.updateProfile(data);
     if (res.success && res.user) {
@@ -96,12 +72,10 @@ export const AuthProvider = ({ children }) => {
         loading,
         isAuthenticated: !!user,
         isAdmin: user?.role === 'admin',
-        isStaffOrAdmin: user?.role === 'admin' || user?.role === 'staff',
+        isStaffOrAdmin: user?.role === 'admin',
         login,
         register,
         logout,
-        quickLoginAs,
-        rechargeWallet,
         updateProfile,
       }}
     >
