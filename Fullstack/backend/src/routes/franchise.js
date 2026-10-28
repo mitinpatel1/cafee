@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const Franchise = require('../models/Franchise');
 const User = require('../models/User');
 const Order = require('../models/Order');
+const FranchiseIngredient = require('../models/FranchiseIngredient');
+const MenuItem = require('../models/MenuItem');
 const { protect, authorize } = require('../middleware/auth');
 const { seedFranchiseMenu } = require('../services/seedMenu');
 
@@ -90,6 +92,77 @@ router.get('/orders', protect, authorize('franchise'), async (req, res) => {
       .sort({ createdAt: -1 });
     res.json({ success: true, orders });
   } catch (_err) { res.status(500).json({ success: false, message: 'Unable to load franchise orders.' }); }
+});
+
+// Owner-scoped outlet profile and pantry inventory. Every read/write validates ownership.
+const ownerOutlet = async (req, id) => mongoose.isValidObjectId(id)
+  ? Franchise.findOne({ _id: id, ownerId: req.user._id }) : null;
+
+router.patch('/me/:id', protect, authorize('franchise'), async (req, res) => {
+  try {
+    const outlet = await ownerOutlet(req, req.params.id);
+    if (!outlet) return res.status(404).json({ success: false, message: 'Franchise not found for this owner.' });
+    for (const field of ['name', 'brandName', 'city', 'address', 'location', 'phone', 'openTime', 'closeTime']) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) outlet[field] = req.body[field];
+    }
+    await outlet.save();
+    res.json({ success: true, franchise: outlet });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+
+// Owner menu read: unlike public menu, this works while an outlet is inactive.
+router.get('/menu', protect, authorize('franchise'), async (req, res) => {
+  try {
+    const outlet = await ownerOutlet(req, req.query.franchiseId);
+    if (!outlet) return res.status(404).json({ success: false, message: 'Choose one of your franchise outlets.' });
+    const items = await MenuItem.find({ franchiseId: outlet._id }).sort({ category: 1, name: 1 });
+    res.json({ success: true, items, count: items.length });
+  } catch (_e) { res.status(500).json({ success: false, message: 'Unable to load your menu.' }); }
+});
+
+router.get('/inventory', protect, authorize('franchise'), async (req, res) => {
+  try {
+    const outlet = await ownerOutlet(req, req.query.franchiseId);
+    if (!outlet) return res.status(404).json({ success: false, message: 'Choose one of your franchise outlets.' });
+    const ingredients = await FranchiseIngredient.find({ franchiseId: outlet._id }).sort({ category: 1, name: 1 });
+    res.json({ success: true, ingredients });
+  } catch (e) { res.status(500).json({ success: false, message: 'Unable to load outlet inventory.' }); }
+});
+
+router.post('/inventory', protect, authorize('franchise'), async (req, res) => {
+  try {
+    const outlet = await ownerOutlet(req, req.body.franchiseId);
+    if (!outlet) return res.status(404).json({ success: false, message: 'Choose one of your franchise outlets.' });
+    const { name, category, currentStock, minStock, unit, costPerUnit } = req.body;
+    if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ success: false, message: 'Ingredient name is required.' });
+    const ingredient = await FranchiseIngredient.create({ franchiseId: outlet._id, name, category, currentStock, minStock, unit, costPerUnit });
+    res.status(201).json({ success: true, ingredient });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+
+router.patch('/inventory/:id', protect, authorize('franchise'), async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: 'Invalid ingredient.' });
+    const outletIds = (await Franchise.find({ ownerId: req.user._id }).select('_id')).map(f => f._id);
+    const item = await FranchiseIngredient.findOne({ _id: req.params.id, franchiseId: { $in: outletIds } });
+    if (!item) return res.status(404).json({ success: false, message: 'Ingredient not found in your outlets.' });
+    for (const field of ['name', 'category', 'currentStock', 'minStock', 'unit', 'costPerUnit']) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) item[field] = req.body[field];
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'currentStock')) item.lastRestocked = new Date();
+    await item.save();
+    res.json({ success: true, ingredient: item });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+
+router.delete('/inventory/:id', protect, authorize('franchise'), async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: 'Invalid ingredient.' });
+    const outletIds = (await Franchise.find({ ownerId: req.user._id }).select('_id')).map(f => f._id);
+    const deleted = await FranchiseIngredient.findOneAndDelete({ _id: req.params.id, franchiseId: { $in: outletIds } });
+    if (!deleted) return res.status(404).json({ success: false, message: 'Ingredient not found in your outlets.' });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: 'Unable to remove ingredient.' }); }
 });
 
 // Only service administrators can manage the whole franchise network.

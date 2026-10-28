@@ -356,20 +356,39 @@ export const api = {
     return handleResponse(res);
   },
 
-  collectCounterPayment: async (id, reference) => {
-    const res = await fetch(
-      `${API_BASE}/orders/admin/${id}/counter-payment`,
-      {
-        method: "PATCH",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          reference,
-        }),
-      }
-    );
+ 
+collectCounterPayment: async (id, reference = "") => {
+  const token = localStorage.getItem("officebite_token");
 
-    return handleResponse(res);
-  },
+  const response = await fetch(
+    `${API_BASE}/orders/admin/${id}/counter-payment`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        reference: String(reference).trim(),
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("Counter payment failed:", data);
+
+    throw new Error(
+      data.message || "Unable to confirm counter payment."
+    );
+  }
+
+  return data;
+},
+
 
   // ===================================================
   // 7. INVENTORY MANAGEMENT
@@ -580,6 +599,14 @@ export const api = {
 
     return handleResponse(res);
   },
+
+  // Franchise-only scoped stock and outlet settings. Existing admin APIs stay unchanged.
+  getMyFranchiseMenu: async (franchiseId) => handleResponse(await fetch(`${API_BASE}/franchise/menu${buildQuery({franchiseId})}`, {headers:getAuthHeaders()})),
+  getFranchiseInventory: async (franchiseId) => handleResponse(await fetch(`${API_BASE}/franchise/inventory${buildQuery({franchiseId})}`, {headers: getAuthHeaders()})),
+  createFranchiseIngredient: async (payload) => handleResponse(await fetch(`${API_BASE}/franchise/inventory`, {method:'POST', headers:getAuthHeaders(),body:JSON.stringify(payload)})),
+  updateFranchiseIngredient: async (id, payload) => handleResponse(await fetch(`${API_BASE}/franchise/inventory/${id}`, {method:'PATCH',headers:getAuthHeaders(),body:JSON.stringify(payload)})),
+  deleteFranchiseIngredient: async (id) => handleResponse(await fetch(`${API_BASE}/franchise/inventory/${id}`, {method:'DELETE',headers:getAuthHeaders()})),
+  updateMyFranchise: async (id, payload) => handleResponse(await fetch(`${API_BASE}/franchise/me/${id}`, {method:'PATCH',headers:getAuthHeaders(),body:JSON.stringify(payload)})),
 
   // ===================================================
   // 12. FRANCHISE ADMIN MANAGEMENT

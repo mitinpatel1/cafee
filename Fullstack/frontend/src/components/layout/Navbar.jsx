@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   Link,
@@ -20,6 +20,7 @@ import {
   Menu as MenuIcon,
   X,
   ArrowUpRight,
+  ChevronDown,
 } from "lucide-react";
 
 export const Navbar = () => {
@@ -29,34 +30,126 @@ export const Navbar = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
+  const accountRef = useRef(null);
+
   const [q, setQ] = useState("");
   const [dropdown, setDropdown] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   const customer = ["user", "employee"].includes(user?.role);
+
+  const initial = (user?.name || "U")
+    .charAt(0)
+    .toUpperCase();
+
+  const avatarUrl = user?.avatar || "";
+
+  // ============================================
+  // CLOSE MENUS ON ROUTE CHANGE
+  // ============================================
 
   useEffect(() => {
     setDropdown(false);
     setDrawer(false);
   }, [pathname]);
 
-  const submit = (e) => {
-    e.preventDefault();
+  // Reset image error when user uploads a new photo
+  useEffect(() => {
+    setAvatarError(false);
+  }, [avatarUrl]);
 
-    if (q.trim()) {
-      navigate(`/menu?search=${encodeURIComponent(q.trim())}`);
-    }
+  // ============================================
+  // CLOSE PROFILE DROPDOWN ON OUTSIDE CLICK
+  // ============================================
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (
+        accountRef.current &&
+        !accountRef.current.contains(event.target)
+      ) {
+        setDropdown(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handleOutsideClick
+      );
+    };
+  }, []);
+
+  // ============================================
+  // SEARCH
+  // ============================================
+
+  const submit = (event) => {
+    event.preventDefault();
+
+    const searchText = q.trim();
+
+    if (!searchText) return;
+
+    navigate(
+      `/menu?search=${encodeURIComponent(searchText)}`
+    );
+
+    setDrawer(false);
   };
+
+  // ============================================
+  // LOGOUT
+  // ============================================
 
   const handleLogout = () => {
     logout();
+
     setDropdown(false);
+    setDrawer(false);
+
     navigate("/login");
   };
+
+  // ============================================
+  // PROFILE AVATAR
+  // ============================================
+
+  const ProfileAvatar = () => (
+    <span className="ob-avatar-content">
+      {avatarUrl && !avatarError ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          className="nav-avatar-img"
+          onError={() => setAvatarError(true)}
+          style={{
+            display: "block",
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "center",
+            borderRadius: "inherit",
+          }}
+        />
+      ) : (
+        <span className="ob-avatar-initial">
+          {initial}
+        </span>
+      )}
+    </span>
+  );
 
   return (
     <header className="ob-top">
       <div className="ob-wrap ob-top-inner">
+
+        {/* ======================================
+            LOGO
+        ====================================== */}
 
         <Link
           to="/"
@@ -68,22 +161,36 @@ export const Navbar = () => {
           </span>
 
           <span>
-            office<span className="brand-accent">bite.</span>
+            office
+            <span className="brand-accent">
+              bite.
+            </span>
           </span>
         </Link>
 
-        <nav className="ob-pill" aria-label="Customer navigation">
+        {/* ======================================
+            DESKTOP NAVIGATION
+        ====================================== */}
+
+        <nav
+          className="ob-pill"
+          aria-label="Customer navigation"
+        >
           <NavLink
             end
             to="/"
-            className={({ isActive }) => isActive ? "on" : ""}
+            className={({ isActive }) =>
+              isActive ? "on" : ""
+            }
           >
             Home
           </NavLink>
 
           <NavLink
             to="/menu"
-            className={({ isActive }) => isActive ? "on" : ""}
+            className={({ isActive }) =>
+              isActive ? "on" : ""
+            }
           >
             Explore Menu
           </NavLink>
@@ -91,14 +198,22 @@ export const Navbar = () => {
           {customer && (
             <NavLink
               to="/my-orders"
-              className={({ isActive }) => isActive ? "on" : ""}
+              className={({ isActive }) =>
+                isActive ? "on" : ""
+              }
             >
               My Orders
             </NavLink>
           )}
         </nav>
 
+        {/* ======================================
+            RIGHT ACTIONS
+        ====================================== */}
+
         <div className="ob-actions">
+
+          {/* Search */}
 
           <form
             className="ob-search"
@@ -108,12 +223,17 @@ export const Navbar = () => {
             <Search size={16} />
 
             <input
+              type="search"
               aria-label="Search food"
               placeholder="Search dishes"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(event) =>
+                setQ(event.target.value)
+              }
             />
           </form>
+
+          {/* Cart */}
 
           <Link
             className="ob-icon-btn"
@@ -130,38 +250,67 @@ export const Navbar = () => {
             )}
           </Link>
 
-          {isAuthenticated && customer ? (
-            <div className="nav-account">
+          {/* ====================================
+              CUSTOMER PROFILE
+          ==================================== */}
 
+          {isAuthenticated && customer ? (
+            <div
+              className="nav-account"
+              ref={accountRef}
+            >
               <button
                 type="button"
                 className="nav-avatar"
-                onClick={() => setDropdown(!dropdown)}
+                onClick={() =>
+                  setDropdown((prev) => !prev)
+                }
                 aria-expanded={dropdown}
-                aria-label="Account menu"
+                aria-haspopup="menu"
+                aria-label="Open account menu"
+                style={{
+                  width: 46,
+                  height: 46,
+                  minWidth: 46,
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  borderRadius: 12,
+                  background: "#730042",
+                  color: "#ffffff",
+                }}
               >
-                {user?.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt=""
-                    className="nav-avatar-img"
-                  />
-                ) : (
-                  (user?.name || "U").slice(0, 1).toUpperCase()
-                )}
+                <ProfileAvatar />
               </button>
 
-              {dropdown && (
-                <div className="nav-dropdown">
+              {/* Dropdown */}
 
+              {dropdown && (
+                <div
+                  className="nav-dropdown"
+                  role="menu"
+                >
                   <div className="nav-profile">
-                    <b>{user.name}</b>
-                    <small>{user.email}</small>
+                    <div className="ob-dropdown-header">
+                      <span className="ob-dropdown-avatar">
+                        <ProfileAvatar />
+                      </span>
+
+                      <div className="ob-dropdown-user">
+                        <b>{user?.name || "User"}</b>
+                        <small>{user?.email || ""}</small>
+                      </div>
+                    </div>
                   </div>
 
                   <Link
                     to="/profile"
-                    onClick={() => setDropdown(false)}
+                    role="menuitem"
+                    onClick={() =>
+                      setDropdown(false)
+                    }
                   >
                     <UserRound size={16} />
                     My Profile
@@ -169,7 +318,10 @@ export const Navbar = () => {
 
                   <Link
                     to="/my-orders"
-                    onClick={() => setDropdown(false)}
+                    role="menuitem"
+                    onClick={() =>
+                      setDropdown(false)
+                    }
                   >
                     <ShoppingBag size={16} />
                     My Orders
@@ -177,49 +329,76 @@ export const Navbar = () => {
 
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={handleLogout}
                   >
                     <LogOut size={16} />
                     Sign Out
                   </button>
-
                 </div>
               )}
             </div>
-          ) : (
-            <Link to="/login" className="ob-text-link">
+          ) : !isAuthenticated ? (
+            <Link
+              to="/login"
+              className="ob-text-link"
+            >
               Sign In
             </Link>
-          )}
+          ) : null}
 
-          <Link className="nav-primary" to="/menu">
+          {/* Order Now */}
+
+          <Link
+            className="nav-primary"
+            to="/menu"
+          >
             Order Now
             <ArrowUpRight size={17} />
           </Link>
 
+          {/* Mobile Menu Toggle */}
+
           <button
             type="button"
             className="ob-menu-btn"
-            onClick={() => setDrawer(!drawer)}
-            aria-label={drawer ? "Close menu" : "Open menu"}
+            onClick={() =>
+              setDrawer((prev) => !prev)
+            }
+            aria-label={
+              drawer ? "Close menu" : "Open menu"
+            }
             aria-expanded={drawer}
           >
-            {drawer ? <X size={22} /> : <MenuIcon size={22} />}
+            {drawer ? (
+              <X size={22} />
+            ) : (
+              <MenuIcon size={22} />
+            )}
           </button>
-
         </div>
       </div>
+
+      {/* ========================================
+          MOBILE NAVIGATION
+      ======================================== */}
 
       {drawer && (
         <nav
           className="ob-drawer"
           aria-label="Mobile customer navigation"
         >
-          <Link to="/" onClick={() => setDrawer(false)}>
+          <Link
+            to="/"
+            onClick={() => setDrawer(false)}
+          >
             Home
           </Link>
 
-          <Link to="/menu" onClick={() => setDrawer(false)}>
+          <Link
+            to="/menu"
+            onClick={() => setDrawer(false)}
+          >
             Explore Menu
           </Link>
 
@@ -235,18 +414,32 @@ export const Navbar = () => {
               <Link
                 to="/profile"
                 onClick={() => setDrawer(false)}
+                className="ob-mobile-profile-link"
               >
+                <span className="ob-mobile-avatar">
+                  <ProfileAvatar />
+                </span>
+
                 My Profile
               </Link>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="ob-mobile-logout"
+              >
+                <LogOut size={16} />
+                Sign Out
+              </button>
             </>
-          ) : (
+          ) : !isAuthenticated ? (
             <Link
               to="/login"
               onClick={() => setDrawer(false)}
             >
               Customer Sign In
             </Link>
-          )}
+          ) : null}
         </nav>
       )}
     </header>

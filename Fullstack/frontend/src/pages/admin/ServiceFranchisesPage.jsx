@@ -1,15 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { api } from '../../api/api';
-const statuses = ['Active', 'Inactive', 'Pending', 'Suspended'];
-export const ServiceFranchisesPage = () => {
-  const [franchises, setFranchises] = useState([]);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState('');
-  const refresh = async () => { try { const r = await api.getAllFranchises(); setFranchises(r.franchises || []); setError(''); } catch (e) { setError(e.message); } };
-  useEffect(() => { refresh(); }, []);
-  const change = async (id, status) => { setBusy(id); try { await api.updateFranchiseStatus(id, status); await refresh(); } catch(e) { setError(e.message); } finally {setBusy('');} };
-  return <div><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'1rem'}}><div><h1 style={{fontSize:'2rem',fontWeight:800}}>Franchise management</h1><p>Service administrators can manage status for all registered franchises.</p></div><button className="btn btn-secondary" onClick={refresh}>Refresh</button></div>
-  {error && <div className="portal-error" role="alert">{error}</div>}
-  <div className="branch-grid" style={{marginTop:'1.5rem'}}>{franchises.map(f => <article key={f._id} className="branch-card"><h3>{f.name}</h3><p>{f.brandName} · {f.city}</p><p>{f.address}</p><p>Owner: {f.ownerId?.name || 'Unknown'}</p><p>Email: {f.ownerId?.email || f.email}</p><label style={{display:'block',marginTop:'.75rem',fontWeight:700}}>Status<select value={f.status} disabled={busy===f._id} onChange={e=>change(f._id,e.target.value)} style={{display:'block',marginTop:'.35rem',padding:'.55rem',borderRadius:7,border:'1px solid #ded9d2',width:'100%'}}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label></article>)}{franchises.length===0 && <p>No franchises registered yet.</p>}</div>
-  </div>;
+import React,{useCallback,useEffect,useState} from 'react';
+import {api} from '../../api/api';
+import {PageHead,Metric,SearchField,DataTable,Status} from '../../components/ui/CafeteriaKit';
+import {Store,CheckCircle2,Clock3,IndianRupee,RefreshCw} from 'lucide-react';
+const statuses=['Active','Inactive','Pending','Suspended'];
+export const ServiceFranchisesPage=()=>{
+ const [franchises,setFranchises]=useState([]),[search,setSearch]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(''),[loading,setLoading]=useState(true);
+ const refresh=useCallback(async()=>{try{const r=await api.getAllFranchises();setFranchises(r.franchises||[]);setError('');}catch(e){setError(e.message);}finally{setLoading(false);}},[]);
+ useEffect(()=>{refresh();},[refresh]);
+ const change=async(id,status)=>{setBusy(id);try{await api.updateFranchiseStatus(id,status);await refresh();}catch(e){setError(e.message);}finally{setBusy('');}};
+ const shown=franchises.filter(f=>`${f.name} ${f.city} ${f.ownerId?.name||''}`.toLowerCase().includes(search.toLowerCase()));
+ return <div className="ob-portal-page cf-page"><PageHead title="Franchise Management" subtitle="Manage outlets, verify ownership and change operating status"><button className="cf-outlined" onClick={refresh} type="button"><RefreshCw size={16}/> Refresh</button></PageHead>{error&&<p className="ob-portal-error" role="alert">{error}</p>}<div className="cf-stat-grid"><Metric icon={Store} label="Total Franchises" value={franchises.length} sub="Registered outlets"/><Metric icon={CheckCircle2} label="Active" value={franchises.filter(x=>x.status==='Active').length} sub="Currently operating" tint="green"/><Metric icon={Clock3} label="Pending" value={franchises.filter(x=>x.status==='Pending').length} sub="Awaiting activation" tint="peach"/><Metric icon={IndianRupee} label="Tracked Outlets" value={franchises.filter(x=>x.status==='Inactive'||x.status==='Suspended').length} sub="Inactive or suspended" tint="amber"/></div><div className="cf-panel"><div className="cf-panel-head"><div><h2>All Franchises</h2><p>Status updates are sent to your existing backend.</p></div><SearchField value={search} onChange={setSearch} placeholder="Search franchise..."/></div><DataTable headers={['Outlet','Location','Owner','Status','Change Status']} loading={loading} empty={!loading&&!shown.length?'No franchise records found.':null}>{shown.map(f=><tr key={f._id}><td><b>{f.name}</b><small className="cf-cell-sub">{f.brandName}</small></td><td>{f.city||'—'}</td><td><b>{f.ownerId?.name||'Unknown'}</b><small className="cf-cell-sub">{f.ownerId?.email||f.email}</small></td><td><Status status={f.status}/></td><td><select aria-label={`Change status of ${f.name}`} className="cf-select" value={f.status} disabled={busy===f._id} onChange={e=>change(f._id,e.target.value)}>{statuses.map(s=><option key={s}>{s}</option>)}</select></td></tr>)}</DataTable></div></div>;
 };

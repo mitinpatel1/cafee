@@ -1,0 +1,214 @@
+/* =========================================================
+   CUSTOMER CAFETERIA DASHBOARD
+   Built to match the user-provided menu dashboard reference.
+   Scoped to .caf-dashboard-shell: admin and owner UI are untouched.
+   ========================================================= */
+.caf-dashboard-shell {
+  --caf-orange: #ff7909;
+  --caf-orange-dark: #ec6500;
+  --caf-text: #171717;
+  --caf-muted: #686868;
+  --caf-line: #efebe7;
+  --caf-shadow: 0 5px 22px rgba(61, 41, 20, .045);
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+  color: var(--caf-text);
+  background: radial-gradient(ellipse at 27% 70%, #fbf4ec, #fffaf5 40%, #fff 85%);
+  font-family: 'Poppins', 'DM Sans', sans-serif;
+}
+.caf-dashboard-shell *, .caf-dashboard-shell *::before, .caf-dashboard-shell *::after { box-sizing: border-box; }
+.caf-dashboard-shell a { text-decoration: none; }
+.caf-sidebar {
+  width: 263px;
+  flex: 0 0 263px;
+  background: linear-gradient(155deg, #fffefa 6%, #fff 55%, #fffcf8 100%);
+  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 6px 0 25px rgba(77, 54, 29, .065);
+  z-index: 30;
+}
+.caf-brand { display: flex; align-items: center; flex-direction: column; padding: 20px 12px 0; text-align: center; gap: 0; color: #ef720a; }
+.caf-brand-mark { width: 61px; height: 61px; border-radius: 50%; background: var(--caf-orange); display: grid; place-items: center; color: #fff; margin-bottom: 5px; }
+.caf-brand strong { font-size: 20px; font-weight: 700; line-height: 1.5; letter-spacing: -.5px; color: #f37508; white-space: nowrap; }
+.caf-brand small { color: #585858; font-size: 11px; line-height: 1.9; }
+.caf-brand small span { padding: 0 3px; }
+.caf-side-links { display: flex; flex-direction: column; gap: 10px; padding: 28px 16px 0; }
+.caf-side-link { display: flex; align-items: center; width: 100%; padding: 11px 17px; min-height: 46px; gap: 18px; border-radius: 9px; font-weight: 500; font-size: 14px; color: #454545; transition: background .2s ease, transform .2s ease, color .2s ease; }
+.caf-side-link:hover { color: var(--caf-orange-dark); background: #fff4e9; transform: translateX(2px); }
+.caf-side-link.active { background: var(--caf-orange); color: #fff; font-weight: 600; }
+.caf-side-count { margin-left: auto; background: var(--caf-orange); color: white; border-radius: 999px; font-size: 11px; min-width: 20px; height: 20px; display: grid; place-items: center; font-weight: 700; }
+.caf-side-link.active .caf-side-count { color: var(--caf-orange); background: #fff; }
+.caf-sidebar-bottom { margin-top: auto; min-height: 235px; position: relative; padding: 20px 20px 50px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; overflow: hidden; gap: 8px; text-align: center; font-size: 18px; line-height: 1.4; color: #786254; }
+.caf-sidebar-bottom::before { content: ''; position: absolute; height: 140px; width: 270px; background: #ffdec0; border-radius: 45% 55% 0 0; bottom: -89px; left: -18px; transform: rotate(-9deg); }
+.caf-cutlery-art { color: #ffad60; display: flex; position: relative; gap: 1px; align-items: flex-end; transform: rotate(-5deg); }
+.caf-cutlery-art svg:last-child { color: #bbda70; }
+.caf-sidebar-bottom > span { position: relative; }
+.caf-content-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.caf-topbar { height: 72px; flex: 0 0 72px; padding: 0 24px 0 36px; display: flex; align-items: center; gap: 18px; background: rgba(255, 255, 255, .5); }
+.caf-top-search { display: flex; align-items: center; gap: 10px; background: #fff; color: #4b4b4b; width: min(520px, 70%); height: 42px; border: 1px solid #e8e8e8; border-radius: 999px; box-shadow: 0 4px 15px rgba(28, 18, 10, .018); padding: 0 16px; }
+.caf-top-search:focus-within { border-color: #ffa35e; box-shadow: 0 0 0 3px #ffeedf; }
+.caf-top-search input { min-width: 0; width: 100%; border: none; outline: none; background: transparent; font: inherit; color: #333; font-size: 13px; }
+.caf-top-search input::placeholder { color: #666; }
+.caf-top-search input::-webkit-search-cancel-button { display: none; }
+.caf-top-search button { display: grid; place-items: center; color: #888; }
+.caf-top-actions { margin-left: auto; display: flex; align-items: center; gap: 30px; }
+.caf-top-cart { color: #242424; position: relative; display: grid; place-items: center; width: 34px; height: 38px; }
+.caf-cart-badge { background: var(--caf-orange); color: #fff; position: absolute; top: -1px; right: -5px; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 100px; border: 2px solid #fff; }
+.caf-account-menu { position: relative; }
+.caf-account-trigger { display: flex; align-items: center; gap: 4px; }
+.caf-user-avatar { width: 43px; height: 43px; background: var(--caf-orange); border-radius: 50%; color: white; display: grid; place-items: center; overflow: hidden; font-weight: 650; position: relative; flex: 0 0 auto; }
+.caf-user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; position: absolute; inset: 0; }
+.caf-user-avatar--sm { width: 37px; height: 37px; }
+.caf-account-chevron { color: #8b7a67; }
+.caf-account-dropdown { position: absolute; top: calc(100% + 13px); right: 0; z-index: 100; width: 245px; padding: 9px; background: #fff; border: 1px solid #eee5dc; border-radius: 14px; box-shadow: 0 15px 35px rgba(60, 35, 14, .13); }
+.caf-account-intro { padding: 9px; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid #f2ebe4; margin-bottom: 5px; }
+.caf-account-intro div { min-width: 0; }
+.caf-account-intro b, .caf-account-intro small { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.caf-account-intro b { font-size: 13px; }
+.caf-account-intro small { font-size: 10px; color: #848484; }
+.caf-account-dropdown > a, .caf-account-dropdown > button { display: flex; width: 100%; gap: 10px; align-items: center; color: #454545; border-radius: 7px; padding: 11px 10px; font-size: 12px; }
+.caf-account-dropdown > a:hover, .caf-account-dropdown > button:hover { background: #fff1e6; color: var(--caf-orange-dark); }
+.caf-hamburger { display: none; padding: 8px; color: #353535; }
+.caf-mobile-scrim { display: none; }
+.caf-main { flex: 1; min-width: 0; padding: 17px clamp(15px, 2.3vw, 36px) 54px; }
+/* Screenshot-matching menu page */
+.caf-menu-page { width: 100%; max-width: 1540px; margin: 0 auto; }
+.caf-banner { height: 192px; position: relative; overflow: hidden; background: linear-gradient(108deg, #f8e6d5, #fce7d4 41%, #f5ae6c 85%); border-radius: 11px; margin-bottom: 23px; display: flex; align-items: center; box-shadow: 0 7px 22px rgba(96, 59, 21, .045); }
+.caf-banner-copy { position: relative; z-index: 2; padding-left: 33px; width: 66%; }
+.caf-banner-copy > span { color: #f2730d; font-weight: 600; letter-spacing: 1px; font-size: 16px; }
+.caf-banner-copy h1 { margin: 7px 0 2px; font-size: 40px; letter-spacing: -.5px; color: #131313; line-height: 1.3; font-weight: 750; }
+.caf-banner-copy p { color: #222; font-size: 16px; line-height: 1.65; }
+.caf-banner-picture { position: absolute; top: 0; right: 0; height: 100%; width: 49%; background-position: center; background-size: cover; }
+.caf-banner-picture::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #f9e6d5 0%, rgba(249,230,213,.55) 18%, transparent 48%); }
+.caf-menu-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
+.caf-category-tabs { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; }
+.caf-category-tabs button { min-width: 78px; height: 39px; padding: 0 25px; border: 1px solid #eeece9; border-radius: 999px; background: #fff; box-shadow: 0 2px 3px rgba(45,37,22,.015); color: #424242; font-size: 13px; font-weight: 500; }
+.caf-category-tabs button:hover { background: #fff0e5; border-color: #ffc18b; }
+.caf-category-tabs button.active { border-color: var(--caf-orange); background: var(--caf-orange); color: #fff; font-weight: 600; }
+.caf-filter-toggle { display: inline-flex; align-items: center; gap: 8px; color: #73685f; background: #fff; padding: 9px 12px; border-radius: 9px; border: 1px solid #eee7e0; font-size: 12px; }
+.caf-filter-toggle.open { border-color: #ffbe82; color: var(--caf-orange-dark); }
+.caf-menu-branch-line { min-height: 29px; display: flex; align-items: center; gap: 12px; margin: -5px 0 14px; font-size: 11px; color: #82766e; }
+.caf-branch-info { display: inline-flex; align-items: center; gap: 7px; }
+.caf-branch-info svg { color: var(--caf-orange); }
+.caf-branch-select { position: relative; display: inline-flex; align-items: center; border-bottom: 1px dashed #ffbd8b; max-width: min(340px, 42vw); }
+.caf-branch-select select { padding: 4px 18px 4px 0; appearance: none; outline: none; border: none; color: #443b36; background: transparent; font-size: 11px; max-width: 100%; cursor: pointer; }
+.caf-branch-select svg { position: absolute; right: 0; pointer-events: none; }
+.caf-menu-results { margin-left: auto; font-size: 11px; color: #999; }
+.caf-advanced-filters { background: #fff; border: 1px solid #f0e7df; border-radius: 10px; padding: 12px 14px; margin: -4px 0 16px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 14px; }
+.caf-diet-choices { display: flex; flex-wrap: wrap; gap: 7px; }
+.caf-diet-choices button { background: #faf7f5; padding: 8px 12px; border-radius: 8px; font-size: 11px; color: #5d554e; }
+.caf-diet-choices button.active { background: #fff0e3; color: #c55900; font-weight: 650; }
+.caf-advanced-filters label { font-size: 11px; display: flex; gap: 9px; align-items: center; color: #777; }
+.caf-advanced-filters select { color: #353535; border: 1px solid #eee3d6; background: white; border-radius: 7px; padding: 6px 8px; font-size: 11px; }
+.caf-alert, .caf-note { background: #fff8ef; border: 1px solid #ffe0bd; color: #8b521c; border-radius: 9px; font-size: 12px; padding: 11px 14px; margin-bottom: 14px; }
+.caf-search-caption { color: #6f655b; font-size: 12px; padding-bottom: 10px; }
+.caf-food-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 23px; row-gap: 19px; align-items: stretch; }
+.caf-food-card { min-width: 0; background: #fff; border-radius: 13px; overflow: hidden; padding: 6px; border: 1px solid #f4f1ec; box-shadow: var(--caf-shadow); display: flex; flex-direction: column; transition: transform .25s ease, box-shadow .25s ease; }
+.caf-food-card:hover { transform: translateY(-5px); box-shadow: 0 16px 26px rgba(77, 44, 18, .115); }
+.caf-food-photo-wrap { height: clamp(122px, 11vw, 160px); border-radius: 10px; overflow: hidden; position: relative; background: #f4e6d8; }
+.caf-food-photo-wrap > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform .55s ease; }
+.caf-food-card:hover .caf-food-photo-wrap > img { transform: scale(1.045); }
+.caf-food-no-photo { display: flex; height: 100%; gap: 8px; flex-direction: column; align-items: center; justify-content: center; color: #ac8569; background: linear-gradient(125deg, #f8e9d9, #fffbf5); font-size: 11px; }
+.caf-food-category { position: absolute; top: 8px; right: 8px; color: #eb6807; background: rgba(255,255,255,.92); box-shadow: 0 1px 4px rgba(57,30,14,.06); border: 1px solid #ffdcc5; border-radius: 999px; padding: 4px 10px; font-size: 10px; line-height: 1; }
+.caf-food-diet { position: absolute; top: 8px; left: 9px; width: 19px; height: 19px; border-radius: 3px; background: rgba(255,255,255,.96); border: 2px solid #168340; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.caf-food-diet i { width: 8px; height: 8px; border-radius: 50%; background: #168340; }
+.caf-food-diet--nonveg { border-color: #bb2929; }
+.caf-food-diet--nonveg i { background: #bb2929; }
+.caf-food-soldout { position: absolute; bottom: 10px; left: 10px; background: rgba(27,24,23,.85); color: #fff; font-size: 11px; padding: 4px 8px; border-radius: 5px; }
+.caf-food-card-body { display: flex; flex-direction: column; flex: 1; padding: 10px 10px 9px; min-height: 159px; }
+.caf-food-card-body h3 { color: #262626; font-size: 14px; line-height: 1.38; letter-spacing: -.1px; font-weight: 650; margin: 0 0 7px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.caf-food-card-body p { color: #858585; font-size: 11px; line-height: 1.65; min-height: 35px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2; overflow: hidden; margin: 0 0 8px; }
+.caf-food-price { font-size: 14px; font-weight: 650; color: #202020; margin-top: auto; padding-bottom: 12px; }
+.caf-add-button, .caf-card-quantity { display: flex; align-items: center; justify-content: center; gap: 9px; border-radius: 6px; width: 100%; height: 34px; background: var(--caf-orange); color: white; font-size: 12px; font-weight: 600; transition: background .2s ease; }
+.caf-add-button:hover:not(:disabled) { background: var(--caf-orange-dark); }
+.caf-add-button:disabled { background: #f3c49a; cursor: not-allowed; }
+.caf-card-quantity { justify-content: space-between; padding: 0 3px; }
+.caf-card-quantity > button { display: grid; place-items: center; width: 34px; height: 30px; color: #fff; }
+.caf-card-quantity > button:hover { background: rgba(255,255,255,.2); border-radius: 5px; }
+.caf-card-quantity > span { font-weight: 650; }
+.caf-food-card--soldout .caf-food-photo-wrap > img { filter: saturate(.62); }
+.caf-food-skeleton { height: 315px; border-radius: 13px; background: linear-gradient(100deg, #fff4ea 10%, #ffeadc 35%, #fff4ea 60%); background-size: 200% 100%; animation: cafShimmer 1.5s ease-in-out infinite; }
+@keyframes cafShimmer { to { background-position-x: -200%; } }
+.caf-menu-empty { text-align: center; border: 1px dashed #edd5c1; border-radius: 16px; padding: 66px 20px; color: #71655d; background: #fff; }
+.caf-menu-empty h3 { color: #262626; font-size: 20px; margin-bottom: 9px; }
+.caf-menu-empty p { font-size: 13px; max-width: 540px; margin: 0 auto 18px; }
+.caf-menu-empty button { background: var(--caf-orange); color: #fff; border-radius: 8px; padding: 11px 20px; }
+.caf-floating-cart { position: sticky; bottom: 16px; margin: 20px auto 0; z-index: 10; width: min(420px, 100%); display: flex; align-items: center; justify-content: space-between; gap: 15px; border-radius: 11px; background: #272421; padding: 12px 18px; color: white; font-size: 12px; box-shadow: 0 12px 25px rgba(0,0,0,.23); }
+.caf-floating-cart strong { color: #ffad65; }
+/* Existing checkout, profile, history, and cart screens stay functional but inherit warm customer accents. */
+.caf-dashboard-shell .btn-primary, .caf-dashboard-shell .ob-btn, .caf-dashboard-shell .portal-form button[type='submit'] { background-color: var(--caf-orange); border-color: var(--caf-orange); color: #fff; }
+.caf-dashboard-shell .btn-primary:hover, .caf-dashboard-shell .ob-btn:hover { background-color: var(--caf-orange-dark); }
+.caf-dashboard-shell .portal-auth-wrap, .caf-dashboard-shell .portal-checkout, .caf-dashboard-shell .max-width-container { max-width: 1100px; margin-left: auto; margin-right: auto; }
+.caf-dashboard-shell .ob-profile-photo-actions h2 { color: #39312b; }
+.caf-dashboard-shell .ob-profile-button-row .btn { background: var(--caf-orange); border-color: var(--caf-orange); }
+.caf-dashboard-shell .ob-profile-photo-camera { background: var(--caf-orange); }
+.caf-dashboard-shell .ob-profile-photo-panel { background: linear-gradient(115deg, #fff5ec, white); border-color: #f3dbc6; }
+.caf-dashboard-shell .portal-form input:focus, .caf-dashboard-shell .portal-form textarea:focus { border-color: #ff953a; }
+/* Responsive grid and mobile drawer */
+@media (max-width: 1330px) {
+  .caf-food-grid { gap: 16px; }
+  .caf-category-tabs { gap: 8px; }
+  .caf-category-tabs button { padding: 0 17px; }
+  .caf-food-card-body { padding: 10px 7px 8px; }
+}
+@media (max-width: 1120px) {
+  .caf-sidebar { width: 224px; flex-basis: 224px; }
+  .caf-brand strong { font-size: 17px; }
+  .caf-side-links { padding-inline: 12px; }
+  .caf-main { padding-inline: 21px; }
+  .caf-food-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 850px) {
+  .caf-sidebar { width: 245px; flex-basis: 245px; position: fixed; left: 0; top: 0; height: 100dvh; transform: translateX(-101%); transition: transform .25s ease; z-index: 90; }
+  .caf-sidebar--open { transform: translateX(0); }
+  .caf-mobile-scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.38); z-index: 80; }
+  .caf-hamburger { display: grid; place-items: center; }
+  .caf-topbar { padding-left: 15px; padding-right: 17px; }
+  .caf-top-search { width: min(520px, 100%); }
+  .caf-top-actions { gap: 10px; }
+  .caf-food-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 650px) {
+  .caf-topbar { height: 66px; flex-basis: 66px; gap: 7px; }
+  .caf-top-search { padding: 0 9px; height: 39px; }
+  .caf-top-search input { font-size: 11px; }
+  .caf-main { padding: 12px 13px 38px; }
+  .caf-banner { height: 174px; }
+  .caf-banner-copy { width: 78%; padding-left: 19px; }
+  .caf-banner-copy > span { font-size: 11px; }
+  .caf-banner-copy h1 { font-size: 29px; }
+  .caf-banner-copy p { max-width: 230px; font-size: 12px; }
+  .caf-banner-picture { width: 56%; }
+  .caf-category-tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .caf-category-tabs button { flex: 0 0 auto; min-width: auto; height: 37px; padding: 0 18px; }
+  .caf-food-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .caf-food-photo-wrap { height: 127px; }
+  .caf-food-card-body { padding: 9px 7px 7px; min-height: 169px; }
+  .caf-food-card-body h3 { font-size: 12px; }
+  .caf-food-card-body p { font-size: 10px; }
+  .caf-food-price { font-size: 13px; }
+  .caf-add-button, .caf-card-quantity { height: 35px; font-size: 10px; gap: 4px; }
+  .caf-account-chevron { display: none; }
+  .caf-user-avatar { width: 37px; height: 37px; }
+  .caf-top-cart { width: 29px; }
+  .caf-branch-info { display: none; }
+  .caf-branch-select { max-width: 80%; }
+}
+@media (max-width: 375px) {
+  .caf-banner-copy h1 { font-size: 25px; }
+  .caf-food-grid { gap: 8px; }
+  .caf-food-photo-wrap { height: 104px; }
+  .caf-food-category { top: 5px; right: 5px; font-size: 8px; padding: 4px 6px; }
+  .caf-food-diet { top: 5px; left: 5px; }
+  .caf-top-search input::placeholder { color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caf-dashboard-shell *, .caf-dashboard-shell *::before, .caf-dashboard-shell *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

@@ -13,6 +13,15 @@ export const OrderStatusBadge = ({ status }) => {
         border: '1px solid #fde68a',
       },
     },
+    Confirmed: {
+      label: 'Confirmed',
+      icon: CheckCircle2,
+      style: {
+        background: '#fff5e9',
+        color: '#b95a00',
+        border: '1px solid #f9d7b2',
+      },
+    },
     Preparing: {
       label: 'Preparing',
       icon: ChefHat,
@@ -29,6 +38,15 @@ export const OrderStatusBadge = ({ status }) => {
         background: '#ecfdf5',
         color: '#047857',
         border: '1px solid #a7f3d0',
+      },
+    },
+    'Picked Up': {
+      label: 'Picked Up',
+      icon: CheckCircle2,
+      style: {
+        background: '#f0fdf4',
+        color: '#15803d',
+        border: '1px solid #bbf7d0',
       },
     },
     Completed: {

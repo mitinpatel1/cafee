@@ -1,14 +1,17 @@
-import React, {useEffect,useState} from 'react';
-import { api } from '../../api/api';
-import { useSocket } from '../../context/SocketContext';
-import { RefreshCw } from 'lucide-react';
+import React,{useCallback,useEffect,useMemo,useState} from 'react';
+import {api} from '../../api/api';
+import {useSearchParams} from 'react-router-dom';
+import {useSocket} from '../../context/SocketContext';
+import {PageHead,Tabs,SearchField,Metric,DataTable,Status,orderId,orderName,orderItemsText} from '../../components/ui/CafeteriaKit';
+import {ShoppingBag,Clock3,CheckCircle2,IndianRupee,RefreshCw} from 'lucide-react';
+const statuses=['All','Pending','Confirmed','Preparing','Ready','Picked Up','Cancelled'];
 export const FranchiseOrdersPage=()=>{
-  const [orders,setOrders]=useState([]);const [error,setError]=useState('');const {socket}=useSocket();
-  const refresh=async()=>{try{const r=await api.getFranchiseOrders();setOrders(r.orders||[]);setError('');}catch(e){setError(e.message);}};
-  useEffect(()=>{refresh();},[]);
-  useEffect(()=>{if(!socket)return;socket.on('franchise_order_updated',refresh);return()=>socket.off('franchise_order_updated',refresh);},[socket]);
-  return <div className="owner-orders"><div className="service-heading"><div><p className="section-kicker">FRANCHISE ANALYTICS</p><h1>Customer orders</h1><p>All orders sent to your franchise. Service team controls preparation, ETA, payment and handover.</p></div><button className="btn btn-secondary" onClick={refresh}><RefreshCw size={16}/> Refresh</button></div>
-    {error&&<p className="portal-error">{error}</p>}
-    <div className="service-orders">{orders.map(o=><article className="service-order" key={o._id}><div className="service-order-head"><div><small>{new Date(o.createdAt).toLocaleString()}</small><h3>#{o.orderNumber}</h3><span>{o.franchiseId?.name} · {o.userId?.name||'Customer'}</span></div><span className="service-status">{o.status}</span></div><p>{o.items.map(i=>`${i.quantity} × ${i.name}`).join(' · ')}</p><div className="service-order-details"><span><b>₹{o.total}</b></span><span>{o.paymentMethod}</span><span><b>{o.paymentStatus}</b></span><span>ETA: {o.estimatedReadyTime?new Date(o.estimatedReadyTime).toLocaleTimeString():'Awaiting service confirmation'}</span></div></article>)}{!orders.length&&<div className="ob-empty">No orders have been placed yet.</div>}</div>
-  </div>;
+ const [orders,setOrders]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[filter,setFilter]=useState('All'),[search,setSearch]=useState('');
+ const [params]=useSearchParams();const query=(params.get('q')||'').trim().toLowerCase();
+ const {socket}=useSocket();
+ const refresh=useCallback(async()=>{try{const r=await api.getFranchiseOrders();setOrders(r.orders||[]);setError('');}catch(e){setError(e.message);}finally{setLoading(false);}},[]);
+ useEffect(()=>{refresh();},[refresh]);
+ useEffect(()=>{if(!socket)return;const fn=()=>refresh();['franchise_order_updated','order_status_updated','payment_confirmed','new_order'].forEach(s=>socket.on(s,fn));return()=>['franchise_order_updated','order_status_updated','payment_confirmed','new_order'].forEach(s=>socket.off(s,fn));},[socket,refresh]);
+ const shown=useMemo(()=>orders.filter(o=>(filter==='All'||o.status===filter)&&`${o.orderNumber} ${o.userId?.name||''} ${o.franchiseId?.name||''} ${orderItemsText(o)}`.toLowerCase().includes(search.toLowerCase())&&`${o.orderNumber} ${o.userId?.name||''} ${o.franchiseId?.name||''} ${orderItemsText(o)}`.toLowerCase().includes(query)),[orders,filter,search,query]);
+ return <div className="ob-portal-page cf-page"><PageHead title="My Orders" subtitle="View all orders placed at your registered franchise outlets"><button type="button" onClick={refresh} className="cf-outlined"><RefreshCw size={16}/> Refresh</button></PageHead>{error&&<div className="ob-portal-error" role="alert">{error}</div>}<div className="cf-stat-grid"><Metric icon={ShoppingBag} label="Total Orders" value={orders.length} sub="All time"/><Metric icon={Clock3} label="Pending" value={orders.filter(o=>o.status==='Pending').length} sub="Awaiting service desk" tint="peach"/><Metric icon={CheckCircle2} label="Handed Over" value={orders.filter(o=>o.status==='Picked Up').length} sub="Completed handovers" tint="green"/><Metric icon={IndianRupee} label="Revenue Collected" value={`₹${orders.filter(o=>o.paymentStatus==='Paid'&&o.status!=='Cancelled').reduce((a,o)=>a+Number(o.total||0),0).toLocaleString('en-IN')}`} sub="Paid orders only" tint="orange"/></div><div className="cf-panel"><div className="cf-panel-head"><div><h2>Customer Orders</h2><p>Status, payment and ETA updates are controlled by the service admin.</p></div><SearchField value={search} onChange={setSearch} placeholder="Search order, customer, dish..."/></div><Tabs items={statuses} value={filter} onChange={setFilter}/><DataTable headers={['Order','Customer','Outlet & Items','Amount','Payment','Status','ETA']} loading={loading} empty={!loading&&!shown.length?'No orders match this filter.':null}>{shown.map(o=><tr key={o._id}><td className="cf-strong">{orderId(o)}<small className="cf-cell-sub">{new Date(o.createdAt).toLocaleDateString('en-IN')}</small></td><td>{orderName(o)}</td><td><b>{o.franchiseId?.name||'—'}</b><small className="cf-cell-sub">{orderItemsText(o)}</small></td><td>{`₹${Number(o.total||0).toLocaleString('en-IN')}`}</td><td><Status status={o.paymentStatus}/></td><td><Status status={o.status}/></td><td>{o.estimatedReadyTime?new Date(o.estimatedReadyTime).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td></tr>)}</DataTable></div></div>;
 };

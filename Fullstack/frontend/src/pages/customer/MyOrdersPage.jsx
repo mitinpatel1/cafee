@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 
-export const MyOrdersPage = () => {
+export const MyOrdersPage = ({ historyOnly = false }) => {
   const [searchParams] = useSearchParams();
   const newlyPlacedOrderNumber = searchParams.get('placed');
 
@@ -108,15 +108,15 @@ export const MyOrdersPage = () => {
   };
 
   // Active / Ongoing orders vs Past Completed orders
-  const activeOrders = orders.filter((o) => ['Pending', 'Preparing', 'Ready'].includes(o.status));
-  const pastOrders = orders.filter((o) => ['Completed', 'Cancelled'].includes(o.status));
+  const activeOrders = orders.filter((o) => ['Pending', 'Confirmed', 'Preparing', 'Ready'].includes(o.status));
+  const pastOrders = orders.filter((o) => ['Picked Up', 'Completed', 'Cancelled'].includes(o.status));
 
   return (
     <div className="max-width-container" style={{ paddingTop: '2.5rem', paddingBottom: '5rem' }}>
       {/* Title */}
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2.2rem', fontWeight: '800', color: '#3c0921' }}>
-          My Cafeteria Orders
+          {historyOnly ? "Order History" : "My Cafeteria Orders"}
         </h1>
         <p style={{ color: '#6b635c', fontSize: '0.95rem' }}>
           Track real-time meal preparation, pickup tokens, and past order receipts.
@@ -223,7 +223,7 @@ export const MyOrdersPage = () => {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
           {/* Active Orders Section */}
-          {activeOrders.length > 0 && (
+          {!historyOnly && activeOrders.length > 0 && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '1.25rem' }}>
                 <span
@@ -243,7 +243,7 @@ export const MyOrdersPage = () => {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {activeOrders.map((order) => {
-                  const steps = ['Pending', 'Preparing', 'Ready', 'Completed'];
+                  const steps = ['Pending', 'Confirmed', 'Preparing', 'Ready', 'Picked Up'];
                   const currentIdx = steps.indexOf(order.status);
 
                   return (
@@ -317,7 +317,7 @@ export const MyOrdersPage = () => {
                         <div
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gridTemplateColumns: 'repeat(5, 1fr)',
                             position: 'relative',
                             textAlign: 'center',
                           }}
@@ -473,6 +473,9 @@ export const MyOrdersPage = () => {
               Past Orders History ({pastOrders.length})
             </h2>
 
+            {pastOrders.length === 0 && (
+              <div className="caf-note" role="status">No completed or cancelled orders yet.</div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {pastOrders.map((order) => (
                 <div
@@ -496,14 +499,14 @@ export const MyOrdersPage = () => {
                         width: '42px',
                         height: '42px',
                         borderRadius: '12px',
-                        background: order.status === 'Completed' ? '#ecfdf5' : '#fef2f2',
-                        color: order.status === 'Completed' ? '#059669' : '#dc2626',
+                        background: ['Completed', 'Picked Up'].includes(order.status) ? '#ecfdf5' : '#fef2f2',
+                        color: ['Completed', 'Picked Up'].includes(order.status) ? '#059669' : '#dc2626',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
                     >
-                      {order.status === 'Completed' ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
+                      {['Completed', 'Picked Up'].includes(order.status) ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
                     </div>
 
                     <div>

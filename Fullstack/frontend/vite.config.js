@@ -8,11 +8,11 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
+    strictPort: true,
 
     proxy: {
-      "/socket.io": {
+      "/api": {
         target: "http://127.0.0.1:5600",
-        ws: true,
         changeOrigin: true,
       },
 
@@ -21,9 +21,10 @@ export default defineConfig({
         changeOrigin: true,
       },
 
-      "/api": {
+      "/socket.io": {
         target: "http://127.0.0.1:5600",
         changeOrigin: true,
+        ws: true,
       },
     },
   },

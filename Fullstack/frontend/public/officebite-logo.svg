@@ -1,0 +1,25 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+
+  <circle cx="40" cy="40" r="37" fill="#FF7900"></circle>
+
+  <g fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Fork -->
+    <path d="
+      M24 18 V42
+      M18 18 V30
+      Q18 37 24 37
+      Q30 37 30 30
+      V18
+      M24 42 V61
+    "></path>
+
+    <!-- Spoon -->
+    <ellipse cx="53" cy="29" rx="9" ry="13"></ellipse>
+
+    <path d="M53 42 V61"></path>
+
+    <!-- Decorative curved line -->
+    <path d="M20 65 Q40 73 60 65" stroke-width="2.5"></path>
+  </g>
+</svg>

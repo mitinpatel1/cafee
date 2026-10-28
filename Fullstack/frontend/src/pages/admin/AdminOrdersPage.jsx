@@ -1,65 +1,36 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { api } from '../../api/api';
-import { useSocket } from '../../context/SocketContext';
-import { Clock3, RefreshCw, ReceiptIndianRupee, ChefHat, CheckCircle2, Wallet } from 'lucide-react';
-
-const next = {Pending:'Confirmed',Confirmed:'Preparing',Preparing:'Ready',Ready:'Picked Up'};
-const label = {Confirmed:'Accept order & set ETA',Preparing:'Start preparing',Ready:'Mark ready', 'Picked Up':'Hand over order'};
-export const AdminOrdersPage = () => {
-  const [orders,setOrders] = useState([]);
-  const [filter,setFilter] = useState('All');
-  const [eta,setEta] = useState({});
-  const [upiRef,setUpiRef] = useState({});
-  const [busy,setBusy] = useState('');
-  const [error,setError] = useState('');
-  const [loading,setLoading] = useState(true);
-  const {socket}=useSocket();
-  const refresh=useCallback(async()=>{
-    try { const result=await api.getAllOrders({});setOrders(result.orders||[]);setError(''); }
-    catch(e) {setError(e.message);} finally {setLoading(false);}
-  },[]);
-  useEffect(()=>{refresh();},[refresh]);
-  useEffect(()=>{
-    if(!socket)return;
-    const receive=()=>refresh();
-    socket.on('new_order',receive);socket.on('order_status_updated',receive);
-    return()=>{socket.off('new_order',receive);socket.off('order_status_updated',receive);};
-  },[socket,refresh]);
-  const transition=async(order,status)=>{
-    setBusy(order._id);setError('');
-    try{
-      const mins=['Confirmed','Preparing'].includes(status)?Number(eta[order._id]||15):undefined;
-      await api.updateOrderStatus(order._id,status,mins);
-      await refresh();
-    }catch(e){setError(e.message);}finally{setBusy('');}
-  };
-  const pay=async order=>{
-    if(!window.confirm(`Have you actually received ₹${order.total} at the counter?`))return;
-    setBusy(order._id);setError('');
-    try{await api.collectCounterPayment(order._id,upiRef[order._id]||'');await refresh();}
-    catch(e){setError(e.message);}finally{setBusy('');}
-  };
-  const displayed=orders.filter(o=>filter==='All'||o.status===filter);
-  const active=orders.filter(o=>!['Picked Up','Cancelled'].includes(o.status));
-  return <div className="service-console">
-    <div className="service-heading"><div><p className="section-kicker">SERVICE OPERATIONS</p><h1>Live order desk</h1><p>Accept orders, respond with a preparation time, control handover and record actual payments.</p></div><button className="btn btn-secondary" onClick={refresh}><RefreshCw size={16}/> Refresh orders</button></div>
-    <div className="service-metrics"><div><ReceiptIndianRupee/><b>{orders.length}</b><span>Total orders</span></div><div><Clock3/><b>{active.length}</b><span>In progress</span></div><div><ChefHat/><b>{orders.filter(x=>x.status==='Preparing').length}</b><span>Cooking now</span></div><div><Wallet/><b>{orders.filter(x=>x.paymentStatus==='Pending').length}</b><span>Payment pending</span></div></div>
-    <div className="service-filters">{['All','Pending','Confirmed','Preparing','Ready','Picked Up','Cancelled'].map(s=><button key={s} className={filter===s?'active':''} onClick={()=>setFilter(s)}>{s}</button>)}</div>
-    {error&&<p className="portal-error" role="alert">{error}</p>}
-    {loading?<div className="ob-empty">Loading service orders…</div>:!displayed.length?<div className="ob-empty">No orders for this filter.</div>:
-      <div className="service-orders">{displayed.map(order=><article className="service-order" key={order._id}>
-        <div className="service-order-head"><div><small>{new Date(order.createdAt).toLocaleString()}</small><h3>#{order.orderNumber}</h3><span>{order.userId?.name||'Customer'} · {order.franchiseId?.name||'Franchise pickup'}</span></div><span className={`service-status ${order.status.toLowerCase().replaceAll(' ','-')}`}>{order.status}</span></div>
-        <div className="service-order-lines">{order.items.map((item,i)=><span key={i}>{item.quantity} × {item.name}</span>)}</div>
-        {order.notes&&<p className="service-notes">Instructions: {order.notes}</p>}
-        <div className="service-order-details"><span><b>₹{order.total}</b> total</span><span>Payment: <b>{order.paymentMethod}</b></span><span>Payment status: <b>{order.paymentStatus}</b></span><span>ETA: <b>{order.estimatedReadyTime ? new Date(order.estimatedReadyTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'Awaiting confirmation'}</b></span></div>
-        <div className="service-order-actions">
-          {next[order.status] && <>
-            {['Pending','Confirmed'].includes(order.status) && <label className="service-eta">Preparation time (minutes)<input type="number" min="1" max="180" value={eta[order._id]??15} onChange={e=>setEta(v=>({...v,[order._id]:e.target.value}))}/></label>}
-            <button disabled={busy===order._id || (next[order.status]==='Picked Up' && order.paymentStatus!=='Paid') || (order.paymentMethod==='Online (Razorpay)' && order.paymentStatus!=='Paid')} className="service-primary" onClick={()=>transition(order,next[order.status])}>{label[next[order.status]]}</button>
-          </>}
-          {['Pending','Confirmed'].includes(order.status) && <button disabled={busy===order._id} className="service-secondary" onClick={()=>transition(order,'Cancelled')}>Reject order</button>}
-          {['Counter Cash','Counter UPI','Cash on Pickup'].includes(order.paymentMethod) && order.paymentStatus!=='Paid'&& order.status!=='Cancelled' && <div className="service-payment">{order.paymentMethod==='Counter UPI'&&<input value={upiRef[order._id]||''} onChange={e=>setUpiRef(v=>({...v,[order._id]:e.target.value}))} placeholder="UPI transaction reference" aria-label="UPI transaction reference"/>}<button disabled={busy===order._id} onClick={()=>pay(order)}><CheckCircle2 size={16}/> Confirm payment received</button></div>}
-        </div>
-      </article>)}</div>}
-  </div>;
+import React,{useCallback,useEffect,useState} from 'react';
+import {useSearchParams} from 'react-router-dom';
+import {api} from '../../api/api';
+import {useSocket} from '../../context/SocketContext';
+import {portalMoney} from '../../components/ui/PortalPieces';
+import {PageHead,Metric,Tabs,DataTable,SearchField,Status,orderId,orderName,orderItemsText} from '../../components/ui/CafeteriaKit';
+import {ShoppingBag,Clock3,ChefHat,Wallet,RefreshCw,ChevronDown,Check,Trash2} from 'lucide-react';
+const statuses=['All','Pending','Confirmed','Preparing','Ready','Picked Up','Cancelled'];
+const next={Pending:'Confirmed',Confirmed:'Preparing',Preparing:'Ready',Ready:'Picked Up'};
+const labels={Confirmed:'Accept Order',Preparing:'Start Preparing',Ready:'Mark Ready','Picked Up':'Hand Over'};
+const counterMethods=['Counter Cash','Counter UPI','Cash on Pickup'];
+export const AdminOrdersPage=()=>{
+ const [orders,setOrders]=useState([]),[loading,setLoading]=useState(true),[filter,setFilter]=useState('All'),[search,setSearch]=useState(''),[open,setOpen]=useState(''),[busy,setBusy]=useState(''),[eta,setEta]=useState({}),[refs,setRefs]=useState({}),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const [params]=useSearchParams();const query=(params.get('q')||'').trim().toLowerCase();const {socket}=useSocket();
+ const refresh=useCallback(async()=>{try{const result=await api.getAllOrders();setOrders(result.orders||[]);setError('');}catch(e){setError(e.message||'Unable to fetch orders');}finally{setLoading(false);}},[]);
+ useEffect(()=>{refresh();},[refresh]);
+ useEffect(()=>{if(!socket)return;const cb=()=>refresh();['new_order','order_status_updated','payment_confirmed'].forEach(k=>socket.on(k,cb));return()=>['new_order','order_status_updated','payment_confirmed'].forEach(k=>socket.off(k,cb));},[socket,refresh]);
+ const visible=orders.filter(o=>(filter==='All'||o.status===filter)&&(`${o.orderNumber} ${o.userId?.name||''} ${o.franchiseId?.name||''} ${orderItemsText(o)}`.toLowerCase().includes(query))&&(`${o.orderNumber} ${o.userId?.name||''} ${o.franchiseId?.name||''} ${orderItemsText(o)}`.toLowerCase().includes(search.toLowerCase())));
+ const transition=async(o,status)=>{if(busy||!o._id)return;setError('');setNotice('');const cancel=status==='Cancelled'&&['Pending','Confirmed'].includes(o.status);if(!cancel&&next[o.status]!==status){setError('Invalid status transition.');return;}
+  let minutes;if(['Confirmed','Preparing'].includes(status)){minutes=Number(eta[o._id]??o.readyInMinutes??15);if(!Number.isInteger(minutes)||minutes<1||minutes>180){setError('ETA must be 1–180 minutes.');return;}}
+  if(status==='Picked Up'&&o.paymentStatus!=='Paid'){setError('Confirm payment before handover.');return;}
+  if(o.paymentMethod==='Online (Razorpay)'&&o.paymentStatus!=='Paid'&&!cancel){setError('Online payment must be verified before processing.');return;}
+  if(!window.confirm(cancel?`Reject order ${orderId(o)}?`:`Move ${orderId(o)} to ${status}?`))return;
+  setBusy(o._id);try{await api.updateOrderStatus(o._id,status,minutes);setNotice(`${orderId(o)}: ${status}`);await refresh();}catch(e){setError(e.message);}finally{setBusy('');}
+ };
+ const pay=async(o)=>{if(busy)return;if(!counterMethods.includes(o.paymentMethod)||o.status==='Cancelled'||o.paymentStatus==='Paid'){setError('This order cannot be paid at the counter.');return;}
+ const reference=o.paymentMethod==='Counter UPI'?String(refs[o._id]||'').trim():'';
+ if(o.paymentMethod==='Counter UPI'&&(reference.length<4||reference.length>120)){setError('Enter a valid UPI transaction reference (4–120 characters).');return;}
+ if(!window.confirm(`Confirm that ${portalMoney(o.total)} was actually received via ${o.paymentMethod}?`))return;
+ setBusy(o._id);try{await api.collectCounterPayment(o._id,reference);setNotice(`Counter payment confirmed for ${orderId(o)}.`);setRefs(old=>({...old,[o._id]:''}));await refresh();}catch(e){setError(e.message);}finally{setBusy('');}
+ };
+ return <div className="ob-portal-page cf-page"><PageHead title="Order Management" subtitle="Accept and prepare orders, verify payments and complete handovers"><button type="button" className="cf-outlined" onClick={refresh} disabled={!!busy}><RefreshCw size={16}/> Refresh</button></PageHead><div className="cf-stat-grid"><Metric icon={ShoppingBag} label="Total Orders" value={orders.length} sub="All franchise orders"/><Metric icon={Clock3} label="Pending" value={orders.filter(o=>o.status==='Pending').length} sub="Awaiting acceptance" tint="peach"/><Metric icon={ChefHat} label="Preparing" value={orders.filter(o=>o.status==='Preparing').length} sub="Cooking now" tint="orange"/><Metric icon={Wallet} label="Unpaid Orders" value={orders.filter(o=>o.paymentStatus!=='Paid'&&o.status!=='Cancelled').length} sub="Pending settlement" tint="green"/></div>{error&&<div className="ob-portal-error" role="alert">{error}<button type="button" onClick={()=>setError('')}>Dismiss</button></div>}{notice&&<div className="cf-notice" role="status"><Check size={17}/>{notice}</div>}
+ <div className="cf-panel"><div className="cf-panel-head"><div><h2>All Orders</h2><p>Open any order to update its status or record counter payment.</p></div><SearchField value={search} onChange={setSearch} placeholder="Search order or customer..."/></div><Tabs items={statuses} value={filter} onChange={setFilter}/><DataTable headers={['Order','Customer & Items','Outlet','Amount','Payment','Status','Action']} loading={loading} empty={!loading&&!visible.length?'No orders match these filters.':null}>
+ {visible.map(o=><React.Fragment key={o._id}><tr><td className="cf-strong">{orderId(o)}<small className="cf-cell-sub">{new Date(o.createdAt).toLocaleDateString('en-IN')}</small></td><td><b>{orderName(o)}</b><small className="cf-cell-sub">{orderItemsText(o)}</small></td><td>{o.franchiseId?.name||'—'}</td><td><b>{portalMoney(o.total)}</b></td><td><Status status={o.paymentStatus}/></td><td><Status status={o.status}/></td><td><button type="button" className="cf-outlined cf-expand" aria-expanded={open===o._id} onClick={()=>setOpen(open===o._id?'':o._id)}>Details <ChevronDown size={14}/></button></td></tr>{open===o._id&&<tr className="cf-expanded-row"><td colSpan={7}><div className="cf-order-details"><div><h3>{orderId(o)} · Payment & Preparation</h3><p><strong>Method:</strong> {o.paymentMethod} · <strong>Payment:</strong> {o.paymentStatus}</p><p><strong>Notes:</strong> {o.notes||'No special instructions'} · <strong>ETA:</strong> {o.estimatedReadyTime?new Date(o.estimatedReadyTime).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Not set yet'}</p></div><div className="cf-order-actions">{next[o.status]&&<>{['Pending','Confirmed'].includes(o.status)&&<label className="cf-eta-label">ETA (min)<input type="number" min="1" max="180" value={eta[o._id]??o.readyInMinutes??15} onChange={e=>setEta(s=>({...s,[o._id]:e.target.value}))}/></label>}<button type="button" className="cf-primary" disabled={!!busy||(next[o.status]==='Picked Up'&&o.paymentStatus!=='Paid')||(o.paymentMethod==='Online (Razorpay)'&&o.paymentStatus!=='Paid')} onClick={()=>transition(o,next[o.status])}>{busy===o._id?'Updating…':labels[next[o.status]]}</button></>}{['Pending','Confirmed'].includes(o.status)&&o.paymentStatus!=='Paid'&&<button type="button" className="cf-outlined" disabled={!!busy} onClick={()=>transition(o,'Cancelled')}><Trash2 size={15}/> Reject</button>}{counterMethods.includes(o.paymentMethod)&&o.paymentStatus!=='Paid'&&o.status!=='Cancelled'&&<>{o.paymentMethod==='Counter UPI'&&<input className="cf-upi-input" type="text" maxLength={120} aria-label="Counter UPI reference" placeholder="UPI reference" value={refs[o._id]||''} onChange={e=>setRefs(s=>({...s,[o._id]:e.target.value}))}/>}<button type="button" className="cf-primary" disabled={!!busy} onClick={()=>pay(o)}>Confirm Counter Payment</button></>}</div></div></td></tr>}</React.Fragment>)}
+ </DataTable></div></div>;
 };

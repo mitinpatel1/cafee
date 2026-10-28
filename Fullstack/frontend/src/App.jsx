@@ -12,11 +12,11 @@ import { FranchiseSelectionProvider } from "./context/FranchiseSelectionContext"
 import { CartProvider } from "./context/CartContext";
 import { SocketProvider } from "./context/SocketContext";
 
-import { Navbar } from "./components/layout/Navbar";
+import { CustomerLayout } from "./components/layout/CustomerLayout";
 import { AdminLayout } from "./components/layout/AdminLayout";
 import { FranchiseLayout } from "./components/layout/FranchiseLayout";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
-import { NotificationToast } from "./components/ui/NotificationToast";
+
 
 import {
   UtensilsCrossed,
@@ -48,50 +48,13 @@ import { FranchiseBranchesPage } from "./pages/franchise/FranchiseBranchesPage";
 import { FranchiseRegistrationPage } from "./pages/auth/FranchiseRegistrationPage";
 import { FranchiseMenuPage } from "./pages/franchise/FranchiseMenuPage";
 import { FranchiseOrdersPage } from "./pages/franchise/FranchiseOrdersPage";
+import { FranchiseInventoryPage } from "./pages/franchise/FranchiseInventoryPage";
+import { FranchiseReportsPage } from "./pages/franchise/FranchiseReportsPage";
+import { FranchiseSettingsPage } from "./pages/franchise/FranchiseSettingsPage";
 import { ServiceFranchisesPage } from "./pages/admin/ServiceFranchisesPage";
 
-// Dark theme routes
-const DARK_ROUTES = [];
-
-// Employee / Public Layout
-const EmployeeLayout = ({ children }) => {
-  const { pathname } = useLocation();
-  const dark = DARK_ROUTES.includes(pathname);
-
-  return (
-    <div className={`app-container ${dark ? "theme-dark" : ""}`}>
-      <Navbar />
-
-      <main className="main-content" style={{ paddingBottom: 0 }}>
-        {children}
-      </main>
-
-      <NotificationToast />
-
-      <footer className="ob-footer">
-        <div className="ob-wrap">
-          <div className="ob-logo">
-            <span className="ob-logo-mark">
-              <UtensilsCrossed size={19} />
-            </span>
-
-            <span>office<b>bite.</b></span>
-          </div>
-
-          <p>
-            Real food from real kitchens. Fresh choices, simple ordering, and easy pickup.
-          </p>
-
-          <div className="ob-foot-links">
-            <span><MapPin size={14} /> Choose your franchise at checkout</span>
-            <span><Clock size={14} /> Pickup details are confirmed with your order</span>
-          </div>
-          <div className="ob-copy">© {new Date().getFullYear()} OfficeBite · Food orders and pickup</div>
-        </div>
-      </footer>
-    </div>
-  );
-};
+// Customer pages use a dedicated dashboard shell. Admin and franchise layouts are unchanged.
+const EmployeeLayout = ({ children }) => <CustomerLayout>{children}</CustomerLayout>;
 
 export default function App() {
   return (
@@ -107,10 +70,12 @@ export default function App() {
                 path="/"
                 element={
                   <EmployeeLayout>
-                    <HomePage />
+                    <MenuPage />
                   </EmployeeLayout>
                 }
               />
+
+              <Route path="/discover" element={<EmployeeLayout><HomePage /></EmployeeLayout>} />
 
               <Route
                 path="/login"
@@ -162,6 +127,17 @@ export default function App() {
               />
 
               <Route
+                path="/order-history"
+                element={
+                  <EmployeeLayout>
+                    <ProtectedRoute allowedRoles={["user", "employee"]}>
+                      <MyOrdersPage historyOnly />
+                    </ProtectedRoute>
+                  </EmployeeLayout>
+                }
+              />
+
+              <Route
                 path="/profile"
                 element={
                   <EmployeeLayout>
@@ -193,6 +169,7 @@ export default function App() {
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboardPage />} />
                 <Route path="franchises" element={<ServiceFranchisesPage />} />
+                <Route path="menu" element={<AdminMenuPage />} />
                 
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="inventory" element={<AdminInventoryPage />} />
@@ -206,6 +183,9 @@ export default function App() {
                 <Route path="branches" element={<FranchiseBranchesPage />} />
                 <Route path="orders" element={<FranchiseOrdersPage />} />
                 <Route path="menu" element={<FranchiseMenuPage />} />
+                <Route path="inventory" element={<FranchiseInventoryPage />} />
+                <Route path="reports" element={<FranchiseReportsPage />} />
+                <Route path="settings" element={<FranchiseSettingsPage />} />
               </Route>
 
               {/* Fallback Route */}

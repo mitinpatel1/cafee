@@ -1,9 +1,5 @@
 
-import React, {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   Camera,
@@ -33,11 +29,14 @@ export const ProfilePage = () => {
 
   const fileInputRef = useRef(null);
 
-  const [name, setName] = useState(user?.name || "");
-  const [phone, setPhone] = useState(user?.phone || "");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
 
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [photoMessage, setPhotoMessage] = useState("");
+  const [photoError, setPhotoError] = useState("");
+
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -47,25 +46,27 @@ export const ProfilePage = () => {
     setPhone(user?.phone || "");
   }, [user?.name, user?.phone]);
 
+  // ==============================================
+  // UPLOAD / CHANGE PROFILE PHOTO
+  // ==============================================
+
   const handleUpload = async (event) => {
     const file = event.target.files?.[0];
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    event.target.value = "";
 
     if (!file) return;
 
-    setError("");
-    setMessage("");
+    setPhotoMessage("");
+    setPhotoError("");
 
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      setError("Select a JPG, PNG or WebP photo.");
+      setPhotoError("Only JPG, PNG and WebP images are allowed.");
       return;
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      setError("Image size must be 2 MB or smaller.");
+      setPhotoError("Image must be 2 MB or smaller.");
       return;
     }
 
@@ -73,34 +74,52 @@ export const ProfilePage = () => {
 
     try {
       await uploadProfileAvatar(file);
-      setMessage("Profile photo uploaded successfully.");
-    } catch (err) {
-      setError(err.message || "Could not upload photo.");
+
+      setPhotoMessage(
+        "Profile picture updated successfully."
+      );
+    } catch (error) {
+      setPhotoError(
+        error.message || "Failed to upload profile picture."
+      );
     } finally {
       setPhotoBusy(false);
     }
   };
 
+  // ==============================================
+  // REMOVE PROFILE PHOTO
+  // ==============================================
+
   const handleRemovePhoto = async () => {
-    setError("");
-    setMessage("");
+    setPhotoMessage("");
+    setPhotoError("");
     setPhotoBusy(true);
 
     try {
       await removeProfileAvatar();
-      setMessage("Profile photo removed successfully.");
-    } catch (err) {
-      setError(err.message || "Could not remove photo.");
+
+      setPhotoMessage(
+        "Profile picture removed successfully."
+      );
+    } catch (error) {
+      setPhotoError(
+        error.message || "Failed to remove picture."
+      );
     } finally {
       setPhotoBusy(false);
     }
   };
 
+  // ==============================================
+  // SAVE PERSONAL DETAILS
+  // ==============================================
+
   const handleSave = async (event) => {
     event.preventDefault();
 
-    setError("");
-    setMessage("");
+    setSaveMessage("");
+    setSaveError("");
     setSaving(true);
 
     try {
@@ -109,9 +128,13 @@ export const ProfilePage = () => {
         phone: phone.trim(),
       });
 
-      setMessage("Profile updated successfully.");
-    } catch (err) {
-      setError(err.message || "Could not save profile.");
+      setSaveMessage(
+        "Profile updated successfully."
+      );
+    } catch (error) {
+      setSaveError(
+        error.message || "Failed to update profile."
+      );
     } finally {
       setSaving(false);
     }
@@ -121,6 +144,7 @@ export const ProfilePage = () => {
     <div className="portal-auth-wrap ob-profile-wrap">
       <div className="portal-auth-card ob-profile-card">
 
+        {/* HEADER */}
         <div className="ob-profile-heading">
           <span className="ob-profile-eyebrow">
             YOUR ACCOUNT
@@ -129,45 +153,34 @@ export const ProfilePage = () => {
           <h1>My Profile</h1>
 
           <p>
-            Update your profile picture and personal
-            information anytime.
+            Update your profile picture and
+            personal information anytime.
           </p>
         </div>
 
-        {error && (
-          <div className="portal-error" role="alert">
-            {error}
-          </div>
-        )}
-
-        {message && (
-          <div className="site-notice" role="status">
-            {message}
-          </div>
-        )}
-
-        {/* Profile picture */}
+        {/* PROFILE PICTURE SECTION */}
         <section className="ob-profile-photo-panel">
 
-          <div className="ob-profile-photo-frame">
+          
+<div className="ob-profile-photo-frame">
+  {user?.avatar ? (
+    <img
+      src={user.avatar}
+      alt="Your profile"
+      className="ob-profile-photo-image"
+    />
+  ) : (
+    <UserRound
+      size={54}
+      aria-hidden="true"
+    />
+  )}
 
-            {user?.avatar ? (
-              <img
-                src={user.avatar}
-                alt="Your profile"
-                className="ob-profile-photo-image"
-              />
-            ) : (
-              <UserRound
-                size={53}
-                aria-hidden="true"
-              />
-            )}
+  <span className="ob-profile-photo-camera">
+    <Camera size={16} />
+  </span>
+</div>
 
-            <span className="ob-profile-photo-camera">
-              <Camera size={17} />
-            </span>
-          </div>
 
           <div className="ob-profile-photo-actions">
 
@@ -177,14 +190,13 @@ export const ProfilePage = () => {
               JPG, PNG or WebP · Maximum 2 MB
             </p>
 
+            {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"
               accept="image/jpeg,image/png,image/webp"
               onChange={handleUpload}
-              aria-label="Choose profile photo"
-              className="ob-avatar-file-input"
-              tabIndex={-1}
+              hidden
               disabled={photoBusy}
             />
 
@@ -194,7 +206,9 @@ export const ProfilePage = () => {
                 type="button"
                 className="btn btn-primary"
                 disabled={photoBusy}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() =>
+                  fileInputRef.current?.click()
+                }
               >
                 {photoBusy ? (
                   <LoaderCircle
@@ -223,12 +237,31 @@ export const ProfilePage = () => {
                   Remove
                 </button>
               )}
-
             </div>
+
+            {/* Photo-specific notification */}
+            {photoMessage && (
+              <p
+                className="ob-inline-success"
+                role="status"
+              >
+                {photoMessage}
+              </p>
+            )}
+
+            {photoError && (
+              <p
+                className="ob-inline-error"
+                role="alert"
+              >
+                {photoError}
+              </p>
+            )}
+
           </div>
         </section>
 
-        {/* Personal details */}
+        {/* PERSONAL DETAILS */}
         <form
           className="portal-form ob-profile-fields"
           onSubmit={handleSave}
@@ -243,7 +276,10 @@ export const ProfilePage = () => {
               maxLength={100}
               autoComplete="name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setSaveMessage("");
+              }}
             />
           </label>
 
@@ -264,7 +300,10 @@ export const ProfilePage = () => {
               maxLength={25}
               autoComplete="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setSaveMessage("");
+              }}
             />
           </label>
 
@@ -275,6 +314,25 @@ export const ProfilePage = () => {
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>
+
+          {/* Success message under Save Changes */}
+          {saveMessage && (
+            <div
+              className="ob-save-success"
+              role="status"
+            >
+              {saveMessage}
+            </div>
+          )}
+
+          {saveError && (
+            <div
+              className="ob-save-error"
+              role="alert"
+            >
+              {saveError}
+            </div>
+          )}
 
         </form>
       </div>

@@ -10,7 +10,17 @@ const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173,ht
   .split(',').map(x => x.trim()).filter(Boolean);
 const corsOptions = { origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin is not permitted by CORS')); }, credentials: true };
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '1mb' }));
+// Razorpay webhook needs the original raw body.
+app.use(
+  "/api/payments/webhook",
+  express.raw({
+    type: "application/json",
+    limit: "1mb",
+  })
+);
+
+// Existing JSON middleware stays after the webhook middleware.
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.disable('x-powered-by');
 if (process.env.NODE_ENV !== 'production') app.use((req,res,next) => { console.log(`${req.method} ${req.originalUrl}`); next(); });
