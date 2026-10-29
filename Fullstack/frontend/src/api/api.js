@@ -1,20 +1,29 @@
 
 const API_BASE = "/api";
 
-// =====================================================
-// AUTHENTICATION HELPERS
-// =====================================================
-
+// Separate token for each portal
 const getToken = () => {
-  return localStorage.getItem("officebite_token");
+  const path = window.location.pathname;
+
+  const storageKey =
+    path === "/admin" || path.startsWith("/admin/")
+      ? "officebite_token_admin"
+      : path === "/franchise" ||
+          path.startsWith("/franchise/")
+        ? "officebite_token_franchise"
+        : "officebite_token_user";
+
+  return localStorage.getItem(storageKey);
 };
 
-const getAuthHeaders = () => {
-  const token = getToken();
+const getAuthHeaders = (explicitToken) => {
+  const token = explicitToken ?? getToken();
 
   return {
     "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token
+      ? { Authorization: `Bearer ${token}` }
+      : {}),
   };
 };
 
@@ -25,6 +34,7 @@ const getUploadHeaders = () => {
     ? { Authorization: `Bearer ${token}` }
     : {};
 };
+
 
 // =====================================================
 // RESPONSE HANDLER
@@ -123,14 +133,14 @@ export const api = {
     return handleResponse(res);
   },
 
-  getProfile: async () => {
-    const res = await fetch(`${API_BASE}/auth/profile`, {
-      method: "GET",
-      headers: getAuthHeaders(),
-    });
+ getProfile: async (token) => {
+  const res = await fetch(`${API_BASE}/auth/profile`, {
+    method: "GET",
+    headers: getAuthHeaders(token),
+  });
 
-    return handleResponse(res);
-  },
+  return handleResponse(res);
+},
 
   updateProfile: async (userData) => {
     const res = await fetch(`${API_BASE}/auth/profile`, {
@@ -358,7 +368,11 @@ export const api = {
 
  
 collectCounterPayment: async (id, reference = "") => {
-  const token = localStorage.getItem("officebite_token");
+  // OLD
+// const token = localStorage.getItem("officebite_token");
+
+// NEW
+const token = getToken();
 
   const response = await fetch(
     `${API_BASE}/orders/admin/${id}/counter-payment`,
@@ -379,14 +393,17 @@ collectCounterPayment: async (id, reference = "") => {
   const data = await response.json();
 
   if (!response.ok) {
-    console.error("Counter payment failed:", data);
+  const error = new Error(
+    data?.message ||
+    data?.error ||
+    `Request failed (${response.status}).`
+  );
 
-    throw new Error(
-      data.message || "Unable to confirm counter payment."
-    );
-  }
+  error.status = response.status;
+  throw error;
+}
 
-  return data;
+return data;
 },
 
 

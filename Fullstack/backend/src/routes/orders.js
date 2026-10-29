@@ -1,289 +1,1595 @@
-const express = require('express');
-const Order = require('../models/Order');
-const MenuItem = require('../models/MenuItem');
-const Franchise = require('../models/Franchise');
-const { protect, authorize } = require('../middleware/auth');
+
+"use strict";
+
+const express = require("express");
+const mongoose = require("mongoose");
+
+const Order = require("../models/Order");
+const MenuItem = require("../models/MenuItem");
+const Franchise = require("../models/Franchise");
+
+const {
+  protect,
+  authorize,
+} = require("../middleware/auth");
+
+const {
+  releaseSeat,
+  assignSeatByAdmin,
+  listSeats,
+} = require("../services/seatService");
 
 const router = express.Router();
 
-// ────────────────── POST /api/orders ──────────────────
-// Create a new order (authenticated user)
-router.post('/', protect, authorize('user', 'employee'), async (req, res) => {
-  try {
-    const { items, pickupTime, pickupCounter, paymentMethod, notes, franchiseId } = req.body;
-    if (!['Counter Cash', 'Counter UPI', 'Online (Razorpay)'].includes(paymentMethod)) {
-      return res.status(400).json({ success:false, message:'Choose counter cash, counter UPI or online payment.' });
-    }
-    if (paymentMethod === 'Online (Razorpay)' && !(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)) {
-      return res.status(503).json({success:false,message:'Online payment is not configured. Choose counter cash or UPI.'});
-    }
-    const franchise = await Franchise.findOne({ _id: franchiseId, status: 'Active' }).catch(() => null);
-    if (!franchise) return res.status(400).json({ success: false, message: 'Select an active franchise to place your order.' });
+// ============================================
+// PAYMENT METHODS
+// ============================================
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Order must have at least one item.' });
-    }
+const PAYMENT_METHODS = [
+  "Online (Razorpay)",
+  "Counter Cash",
+  "Counter UPI",
+];
 
-    // Validate items and fetch current prices from DB
-    const orderItems = [];
-    let subtotal = 0;
+const COUNTER_METHODS = [
+  "Counter Cash",
+  "Counter UPI",
+  "Cash on Pickup",
+];
 
-    for (const cartItem of items) {
-      if (!Number.isInteger(cartItem.quantity) || cartItem.quantity < 1 || cartItem.quantity > 50) {
-        return res.status(400).json({ success: false, message: 'Item quantity must be between 1 and 50.' });
-      }
-      const menuItem = await MenuItem.findById(cartItem.menuItemId).catch(() => null);
-      if (!menuItem) {
-        return res.status(400).json({
-          success: false,
-          message: `Menu item not found: ${cartItem.menuItemId}`,
-        });
-      }
-      if (String(menuItem.franchiseId) !== String(franchise._id)) return res.status(400).json({success:false,message:'Menu item does not belong to selected franchise.'});
-      if (!menuItem.isAvailable) {
-        return res.status(400).json({
-          success: false,
-          message: `${menuItem.name} is currently unavailable.`,
-        });
-      }
+// ============================================
+// ORDER STATUS TRANSITIONS
+// ============================================
 
-      const itemTotal = menuItem.price * cartItem.quantity;
-      subtotal += itemTotal;
+const NEXT_STATUS = {
+  Pending: [
+    "Confirmed",
+    "Cancelled",
+  ],
 
-      orderItems.push({
-        menuItemId: menuItem._id,
-        name: menuItem.name,
-        price: menuItem.price,
-        quantity: cartItem.quantity,
-        instructions: cartItem.instructions || '',
-      });
-    }
+  Confirmed: [
+    "Preparing",
+    "Cancelled",
+  ],
 
-    const tax = Math.round(subtotal * 0.05); // 5% GST
-    const total = subtotal + tax;
+  Preparing: [
+    "Ready",
+  ],
 
-    const order = await Order.create({
-      userId: req.user._id,
-      franchiseId: franchise._id,
-      items: orderItems,
-      subtotal,
-      tax,
-      total,
-      paymentMethod,
-      paymentStatus: 'Pending',
-      status: 'Pending',
-      pickupTime: 'Awaiting service confirmation',
-      pickupCounter: pickupCounter || 'Franchise pickup counter',
-      notes: notes || '',
-      estimatedReadyTime: null, // Service dashboard sets a real ETA
-    });
+  Ready: [
+    "Picked Up",
+  ],
+};
 
-    // Populate userId for the response
-    await order.populate('userId', 'name email department');
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
-    // Emit socket event for kitchen staff
-    const io = req.app.get('io');
-    if (io) {
-      io.to('kitchen').emit('new_order', order);
-      io.to(`franchise_${franchise._id}`).emit('franchise_order_updated', order);
-    }
+const roundMoney = (value) =>
+  Math.round(Number(value) * 100) / 100;
 
-    res.status(201).json({ success: true, order });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ────────────────── GET /api/orders/my ──────────────────
-// Get current user's orders
-router.get('/my', protect, async (req, res) => {
-  try {
-    const orders = await Order.find({ userId: req.user._id })
-      .sort({ createdAt: -1 })
-      .populate('items.menuItemId', 'name image emoji');
-
-    res.json({ success: true, orders });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ────────────────── GET /api/orders/admin/all ──────────────────
-// Admin/Staff — get all orders with filters
-router.get('/admin/all', protect, authorize('admin'), async (req, res) => {
-  try {
-    const { status, date } = req.query;
-    const filter = {};
-
-    if (status && status !== 'All') filter.status = status;
-
-    if (date) {
-      const start = new Date(date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(date);
-      end.setHours(23, 59, 59, 999);
-      filter.createdAt = { $gte: start, $lte: end };
-    }
-
-    const orders = await Order.find(filter)
-      .sort({ createdAt: -1 })
-      .populate('userId', 'name email department')
-      .populate('franchiseId','name city');
-
-    res.json({ success: true, orders });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ────────────────── GET /api/orders/:id ──────────────────
-// Get a single order by ID
-router.get('/:id', protect, async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id)
-      .populate('userId', 'name email department')
-      .populate('items.menuItemId', 'name image emoji');
-
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
-    }
-
-    // Only allow owner or admin/staff to view
-    if (
-      order.userId._id.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin'
-    ) {
-      return res.status(403).json({ success: false, message: 'Not authorized to view this order.' });
-    }
-
-    res.json({ success: true, order });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ────────────────── PATCH /api/orders/:id/cancel ──────────────────
-// Cancel an order (user or admin)
-router.patch('/:id/cancel', protect, async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
-    }
-
-    if (order.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'You cannot cancel another customer’s order.' });
-    }
-
-    if (order.paymentStatus === 'Paid') return res.status(409).json({success:false,message:'Paid orders need a manual refund process. Contact service support.'});
-    // Only allow cancel if Pending or Confirmed
-    if (!['Pending', 'Confirmed'].includes(order.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot cancel order with status "${order.status}".`,
-      });
-    }
-
-    order.status = 'Cancelled';
-    order.cancelReason = req.body.reason || 'Cancelled by user';
-
-
-    await order.save();
-
-    // Emit socket event
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${order.userId}`).emit('order_status_updated', {
-        orderId: order._id,
-        status: order.status,
-        order,
-      });
-      io.to(`franchise_${order.franchiseId}`).emit('franchise_order_updated',order);
-      io.to('kitchen').emit('order_status_updated', {
-        orderId: order._id,
-        status: order.status,
-        order,
-      });
-    }
-
-    res.json({ success: true, order });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ────────────────── PATCH /api/orders/admin/:id/status ──────────────────
-// Admin/Staff — update order status
-router.patch('/admin/:id/status', protect, authorize('admin'), async (req,res) => {
-  try {
-    const { status, readyInMinutes } = req.body;
-    const allowedNext = {
-      Pending: ['Confirmed','Cancelled'], Confirmed: ['Preparing','Cancelled'],
-      Preparing: ['Ready'], Ready: ['Picked Up'],
-    };
-    const order = await Order.findById(req.params.id).populate('userId','name email');
-    if (!order) return res.status(404).json({success:false,message:'Order not found.'});
-    if (!allowedNext[order.status]?.includes(status)) return res.status(400).json({success:false,message:`Cannot change ${order.status} to ${status}.`});
-    if (order.paymentMethod === 'Online (Razorpay)' && order.paymentStatus !== 'Paid' && status !== 'Cancelled')
-      return res.status(400).json({success:false,message:'Online payment has not been verified yet.'});
-    if (status === 'Picked Up' && order.paymentStatus !== 'Paid')
-      return res.status(400).json({success:false,message:'Confirm counter payment before handing over the order.'});
-    if (status === 'Confirmed' || status === 'Preparing') {
-      const mins = Number(readyInMinutes);
-      if (!Number.isInteger(mins) || mins < 1 || mins > 180) return res.status(400).json({success:false,message:'Set preparation time from 1 to 180 minutes.'});
-      order.readyInMinutes = mins;
-      order.estimatedReadyTime = new Date(Date.now() + mins * 60000);
-      order.pickupTime = `Ready in about ${mins} minutes`;
-    }
-    if (status === 'Ready') { order.estimatedReadyTime = new Date(); order.readyInMinutes = 0; order.pickupTime = 'Ready for pickup'; }
-    if (status === 'Picked Up') order.pickupTime = 'Collected';
-    order.status = status;
-    await order.save();
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${order.userId._id}`).to(`order_${order._id}`).emit('order_status_updated', {orderId:order._id,status:order.status,order});
-      io.to(`order_${order._id}`).emit('order_tracking_update', {orderId:order._id,status:order.status,eta:order.estimatedReadyTime,message:getStatusMessage(status),timestamp:new Date().toISOString(),orderNumber:order.orderNumber});
-      io.to('kitchen').emit('order_status_updated', {orderId:order._id,status:order.status,order});
-      io.to(`franchise_${order.franchiseId}`).emit('franchise_order_updated', order);
-    }
-    res.json({success:true,order});
-  } catch (e) { res.status(500).json({success:false,message:'Order update failed.'}); }
-});
-
-// Service dashboard records payment physically received at counter; this is NOT an online payment verification.
-router.patch('/admin/:id/counter-payment', protect, authorize('admin'), async (req,res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({success:false,message:'Order not found.'});
-    if (!['Counter Cash','Counter UPI','Cash on Pickup'].includes(order.paymentMethod) || order.status === 'Cancelled')
-      return res.status(400).json({success:false,message:'Only counter payments can be recorded here.'});
-    if (order.paymentStatus === 'Paid') return res.json({success:true,order});
-    // Optional UPI transaction reference entered by service operator; do not confuse with gateway verification.
-    if (order.paymentMethod === 'Counter UPI' && (!req.body.reference || String(req.body.reference).trim().length < 4))
-      return res.status(400).json({success:false,message:'Enter the counter UPI transaction reference.'});
-    order.counterPaymentReference = String(req.body.reference || '').slice(0,120);
-    order.paymentStatus = 'Paid';
-    await order.save();
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${order.userId}`).to(`order_${order._id}`).emit('order_status_updated',{orderId:order._id,status:order.status,order});
-      io.to('kitchen').emit('order_status_updated',{orderId:order._id,status:order.status,order});
-      io.to(`franchise_${order.franchiseId}`).emit('franchise_order_updated',order);
-    }
-    res.json({success:true,order});
-  } catch(e) {res.status(500).json({success:false,message:'Unable to record counter payment.'});}
-});
-
-function getStatusMessage(status) {
-  const messages = {
-    Pending: 'Your order has been received and is waiting for confirmation.',
-    Confirmed: 'Your order has been confirmed! The kitchen will start preparing it soon.',
-    Preparing: 'Your order is being prepared by the chef. Almost there!',
-    Ready: '🎉 Your order is ready for pickup! Head to the counter.',
-    'Picked Up': 'Order picked up. Enjoy your meal!',
-    Cancelled: 'This order has been cancelled.',
-  };
-  return messages[status] || 'Order updated.';
+function errorResponse(res, status, message) {
+  return res.status(status).json({
+    success: false,
+    message,
+  });
 }
+
+function isValidId(id) {
+  return mongoose.isValidObjectId(id);
+}
+
+// ============================================
+// SOCKET.IO ORDER NOTIFICATIONS
+// ============================================
+
+function notifyOrder(req, order) {
+  const io = req.app.get("io");
+
+  if (!io || !order) return;
+
+  const userId =
+    order.userId?._id ||
+    order.userId;
+
+  const franchiseId =
+    order.franchiseId?._id ||
+    order.franchiseId;
+
+  const payload = {
+    orderId: order._id,
+
+    orderNumber: order.orderNumber,
+
+    status: order.status,
+
+    paymentStatus:
+      order.paymentStatus,
+
+    // Admin-selected seat number
+    seatNumber:
+      order.seatNumber ?? null,
+
+    estimatedReadyTime:
+      order.estimatedReadyTime || null,
+
+    order,
+  };
+
+  // ========================================
+  // SERVICE ADMIN NOTIFICATION
+  // ========================================
+
+  io.to("kitchen").emit(
+    "order_status_updated",
+    payload
+  );
+
+  // ========================================
+  // INDIVIDUAL CUSTOMER TRACKING
+  // ========================================
+
+  io.to(
+    `order_${order._id}`
+  ).emit(
+    "order_status_updated",
+    payload
+  );
+
+  io.to(
+    `order_${order._id}`
+  ).emit(
+    "order_tracking_update",
+    payload
+  );
+
+  // ========================================
+  // REGISTERED CUSTOMER
+  // ========================================
+
+  if (userId) {
+    io.to(
+      `user_${userId}`
+    ).emit(
+      "order_status_updated",
+      payload
+    );
+  }
+
+  // ========================================
+  // FRANCHISE DASHBOARD
+  // ========================================
+
+  if (franchiseId) {
+    io.to(
+      `franchise_${franchiseId}`
+    ).emit(
+      "franchise_order_updated",
+      order
+    );
+  }
+}
+
+// ============================================
+// PAYMENT NOTIFICATIONS
+// ============================================
+
+function notifyPayment(req, order) {
+  const io = req.app.get("io");
+
+  if (!io || !order) return;
+
+  const userId =
+    order.userId?._id ||
+    order.userId;
+
+  const payload = {
+    orderId: order._id,
+
+    paymentStatus:
+      order.paymentStatus,
+
+    seatNumber:
+      order.seatNumber ?? null,
+
+    order,
+  };
+
+  // Admin
+  io.to("kitchen").emit(
+    "payment_confirmed",
+    payload
+  );
+
+  // Individual order
+  io.to(
+    `order_${order._id}`
+  ).emit(
+    "payment_confirmed",
+    payload
+  );
+
+  // Registered customer
+  if (userId) {
+    io.to(
+      `user_${userId}`
+    ).emit(
+      "payment_confirmed",
+      payload
+    );
+  }
+}
+
+// ============================================
+// CREATE REGISTERED CUSTOMER ORDER
+// ============================================
+
+// Guest customers use:
+// POST /api/kiosk/orders
+
+router.post(
+  "/",
+  protect,
+  authorize("user", "employee"),
+  async (req, res) => {
+    try {
+      const {
+        franchiseId,
+        items,
+        paymentMethod,
+        pickupCounter,
+        notes,
+      } = req.body || {};
+
+      // ======================================
+      // VALIDATE PAYMENT METHOD
+      // ======================================
+
+      if (
+        !PAYMENT_METHODS.includes(
+          paymentMethod
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Choose a valid payment method."
+        );
+      }
+
+      if (
+        paymentMethod ===
+          "Online (Razorpay)" &&
+        (!process.env.RAZORPAY_KEY_ID ||
+          !process.env.RAZORPAY_KEY_SECRET)
+      ) {
+        return errorResponse(
+          res,
+          503,
+          "Online payment is not configured."
+        );
+      }
+
+      // ======================================
+      // VALIDATE FRANCHISE
+      // ======================================
+
+      if (!isValidId(franchiseId)) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid franchise."
+        );
+      }
+
+      const franchise =
+        await Franchise.findOne({
+          _id: franchiseId,
+          status: "Active",
+        });
+
+      if (!franchise) {
+        return errorResponse(
+          res,
+          400,
+          "Select an active franchise."
+        );
+      }
+
+      // ======================================
+      // VALIDATE CART ITEMS
+      // ======================================
+
+      if (
+        !Array.isArray(items) ||
+        items.length < 1 ||
+        items.length > 30
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Order must contain between 1 and 30 items."
+        );
+      }
+
+      let subtotal = 0;
+
+      const orderItems = [];
+
+      for (const cartItem of items) {
+        if (
+          !cartItem ||
+          !isValidId(
+            cartItem.menuItemId
+          ) ||
+          !Number.isInteger(
+            cartItem.quantity
+          ) ||
+          cartItem.quantity < 1 ||
+          cartItem.quantity > 50
+        ) {
+          return errorResponse(
+            res,
+            400,
+            "Invalid menu item or quantity."
+          );
+        }
+
+        const item =
+          await MenuItem.findById(
+            cartItem.menuItemId
+          );
+
+        if (
+          !item ||
+          !item.isAvailable ||
+          String(item.franchiseId) !==
+            String(franchise._id)
+        ) {
+          return errorResponse(
+            res,
+            400,
+            "One or more menu items are unavailable."
+          );
+        }
+
+        const price =
+          Number(item.price);
+
+        if (
+          !Number.isFinite(price) ||
+          price < 0
+        ) {
+          return errorResponse(
+            res,
+            400,
+            "Invalid menu price."
+          );
+        }
+
+        // Database price is authoritative
+        subtotal +=
+          price * cartItem.quantity;
+
+        orderItems.push({
+          menuItemId: item._id,
+
+          name: item.name,
+
+          price,
+
+          quantity:
+            cartItem.quantity,
+
+          instructions: String(
+            cartItem.instructions || ""
+          ).slice(0, 200),
+        });
+      }
+
+      // ======================================
+      // NO TAX
+      // ======================================
+
+      subtotal =
+        roundMoney(subtotal);
+
+      if (
+        subtotal <= 0 ||
+        !Number.isSafeInteger(
+          Math.round(
+            subtotal * 100
+          )
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid order total."
+        );
+      }
+
+      // ======================================
+      // CREATE ORDER
+      // ======================================
+
+      const order =
+        await Order.create({
+          userId:
+            req.user._id,
+
+          isGuestOrder: false,
+
+          franchiseId:
+            franchise._id,
+
+          items: orderItems,
+
+          subtotal,
+
+          tax: 0,
+
+          total: subtotal,
+
+          paymentMethod,
+
+          paymentStatus:
+            "Pending",
+
+          status: "Pending",
+
+          // Admin manually assigns seat
+          seatNumber: null,
+
+          notes: String(
+            notes || ""
+          ).slice(0, 500),
+
+          pickupCounter:
+            pickupCounter ||
+            "Franchise pickup counter",
+
+          pickupTime:
+            "Awaiting payment",
+
+          estimatedReadyTime:
+            null,
+        });
+
+      await order.populate(
+        "userId",
+        "name email department"
+      );
+
+      // ======================================
+      // REAL-TIME NEW ORDER
+      // ======================================
+
+      const io =
+        req.app.get("io");
+
+      if (io) {
+        io.to("kitchen").emit(
+          "new_order",
+          order
+        );
+
+        io.to(
+          `franchise_${franchise._id}`
+        ).emit(
+          "franchise_order_updated",
+          order
+        );
+      }
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          "Order created successfully.",
+
+        order,
+      });
+    } catch (error) {
+      console.error(
+        "Create order:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to create order."
+      );
+    }
+  }
+);
+
+// ============================================
+// REGISTERED CUSTOMER ORDER HISTORY
+// ============================================
+
+router.get(
+  "/my",
+  protect,
+  async (req, res) => {
+    try {
+      const orders =
+        await Order.find({
+          userId:
+            req.user._id,
+        })
+          .sort({
+            createdAt: -1,
+          })
+          .populate(
+            "items.menuItemId",
+            "name image emoji"
+          );
+
+      return res.json({
+        success: true,
+        orders,
+      });
+    } catch (error) {
+      console.error(
+        "My orders:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to load orders."
+      );
+    }
+  }
+);
+
+// ============================================
+// ADMIN — GET ALL CUSTOMER ORDERS
+// ============================================
+
+// Includes:
+// - Guest/Kiosk customers
+// - Registered customers
+// - All franchise orders
+
+router.get(
+  "/admin/all",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const {
+        status,
+        date,
+      } = req.query;
+
+      const filter = {};
+
+      if (
+        status &&
+        status !== "All"
+      ) {
+        filter.status = status;
+      }
+
+      // ======================================
+      // DATE FILTER
+      // ======================================
+
+      if (date) {
+        const start = new Date(
+          `${date}T00:00:00`
+        );
+
+        const end = new Date(
+          `${date}T23:59:59.999`
+        );
+
+        if (
+          Number.isNaN(
+            start.getTime()
+          ) ||
+          Number.isNaN(
+            end.getTime()
+          )
+        ) {
+          return errorResponse(
+            res,
+            400,
+            "Invalid date filter."
+          );
+        }
+
+        filter.createdAt = {
+          $gte: start,
+          $lte: end,
+        };
+      }
+
+      const orders =
+        await Order.find(
+          filter
+        )
+          .sort({
+            createdAt: -1,
+          })
+          .populate(
+            "userId",
+            "name email department"
+          )
+          .populate(
+            "franchiseId",
+            "name city"
+          );
+
+      return res.json({
+        success: true,
+        orders,
+      });
+    } catch (error) {
+      console.error(
+        "Admin orders:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to load admin orders."
+      );
+    }
+  }
+);
+
+// ============================================
+// CANCEL UNPAID ORDER
+// ============================================
+
+router.patch(
+  "/:id/cancel",
+  protect,
+  async (req, res) => {
+    try {
+      if (
+        !isValidId(
+          req.params.id
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid order ID."
+        );
+      }
+
+      const order =
+        await Order.findById(
+          req.params.id
+        );
+
+      if (!order) {
+        return errorResponse(
+          res,
+          404,
+          "Order not found."
+        );
+      }
+
+      // ======================================
+      // AUTHORIZATION
+      // ======================================
+
+      const isOwner =
+        order.userId &&
+        String(order.userId) ===
+          String(req.user._id);
+
+      const isAdmin =
+        req.user.role === "admin";
+
+      if (
+        !isOwner &&
+        !isAdmin
+      ) {
+        return errorResponse(
+          res,
+          403,
+          "Not authorized."
+        );
+      }
+
+      // ======================================
+      // PAID ORDERS REQUIRE REFUND
+      // ======================================
+
+      if (
+        order.paymentStatus ===
+        "Paid"
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Paid orders require a refund process."
+        );
+      }
+
+      if (
+        ![
+          "Pending",
+          "Confirmed",
+        ].includes(
+          order.status
+        )
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Order cannot be cancelled."
+        );
+      }
+
+      // ======================================
+      // ATOMIC CANCELLATION
+      // ======================================
+
+      const updated =
+        await Order.findOneAndUpdate(
+          {
+            _id:
+              order._id,
+
+            status:
+              order.status,
+
+            paymentStatus: {
+              $ne: "Paid",
+            },
+          },
+          {
+            $set: {
+              status:
+                "Cancelled",
+
+              cancelReason: String(
+                req.body?.reason ||
+                  "Cancelled by user"
+              ).slice(0, 500),
+
+              pickupTime:
+                "Cancelled",
+            },
+          },
+          {
+            new: true,
+            runValidators: true,
+          }
+        );
+
+      if (!updated) {
+        return errorResponse(
+          res,
+          409,
+          "Order changed. Refresh and retry."
+        );
+      }
+
+      // ======================================
+      // RELEASE SEAT IF RESERVED
+      // ======================================
+
+      try {
+        await releaseSeat(
+          updated._id
+        );
+      } catch (error) {
+        console.error(
+          "Seat release after cancel:",
+          error
+        );
+      }
+
+      notifyOrder(
+        req,
+        updated
+      );
+
+      return res.json({
+        success: true,
+        order: updated,
+      });
+    } catch (error) {
+      console.error(
+        "Cancel order:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to cancel order."
+      );
+    }
+  }
+);
+
+// ============================================
+// ADMIN — UPDATE ORDER STATUS
+// ============================================
+
+router.patch(
+  "/admin/:id/status",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      if (
+        !isValidId(
+          req.params.id
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid order ID."
+        );
+      }
+
+      const {
+        status,
+        readyInMinutes,
+      } = req.body || {};
+
+      const order =
+        await Order.findById(
+          req.params.id
+        );
+
+      if (!order) {
+        return errorResponse(
+          res,
+          404,
+          "Order not found."
+        );
+      }
+
+      // ======================================
+      // VALIDATE STATUS TRANSITION
+      // ======================================
+
+      if (
+        !NEXT_STATUS[
+          order.status
+        ]?.includes(
+          status
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          `Cannot change ${order.status} to ${status}.`
+        );
+      }
+
+      // ======================================
+      // PAYMENT FIRST VALIDATION
+      // ======================================
+
+      if (
+        status ===
+          "Cancelled" &&
+        order.paymentStatus ===
+          "Paid"
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Refund a paid order before cancelling."
+        );
+      }
+
+      if (
+        status !==
+          "Cancelled" &&
+        order.paymentStatus !==
+          "Paid"
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Verify payment before accepting the order."
+        );
+      }
+
+      // ======================================
+      // PREPARATION TIME VALIDATION
+      // ======================================
+
+      let minutes = null;
+
+      if (
+        [
+          "Confirmed",
+          "Preparing",
+        ].includes(status)
+      ) {
+        minutes =
+          Number(
+            readyInMinutes
+          );
+
+        if (
+          !Number.isInteger(
+            minutes
+          ) ||
+          minutes < 1 ||
+          minutes > 180
+        ) {
+          return errorResponse(
+            res,
+            400,
+            "Preparation time must be between 1 and 180 minutes."
+          );
+        }
+      }
+
+      // ======================================
+      // MANUAL SEAT MUST EXIST BEFORE
+      // ADMIN CONFIRMS THE ORDER
+      // ======================================
+
+      if (
+        status ===
+          "Confirmed" &&
+        order.seatNumber == null
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Assign a seat manually before confirming the order."
+        );
+      }
+
+      // ======================================
+      // BUILD STATUS UPDATE
+      // ======================================
+
+      const update = {
+        status,
+      };
+
+      if (
+        status ===
+          "Confirmed" ||
+        status ===
+          "Preparing"
+      ) {
+        update.readyInMinutes =
+          minutes;
+
+        update.estimatedReadyTime =
+          new Date(
+            Date.now() +
+              minutes * 60000
+          );
+
+        update.pickupTime =
+          `Ready in about ${minutes} minutes`;
+      }
+
+      if (
+        status === "Ready"
+      ) {
+        update.readyInMinutes =
+          0;
+
+        update.estimatedReadyTime =
+          new Date();
+
+        update.pickupTime =
+          "Ready for pickup";
+      }
+
+      if (
+        status ===
+        "Picked Up"
+      ) {
+        update.pickupTime =
+          "Collected";
+      }
+
+      if (
+        status ===
+        "Cancelled"
+      ) {
+        update.cancelReason =
+          "Cancelled by Admin";
+
+        update.pickupTime =
+          "Cancelled";
+      }
+
+      // ======================================
+      // SAVE STATUS ATOMICALLY
+      // ======================================
+
+      const updated =
+        await Order.findOneAndUpdate(
+          {
+            _id:
+              order._id,
+
+            status:
+              order.status,
+
+            paymentStatus:
+              status ===
+              "Cancelled"
+                ? {
+                    $ne: "Paid",
+                  }
+                : "Paid",
+          },
+          {
+            $set: update,
+          },
+          {
+            new: true,
+            runValidators: true,
+          }
+        ).populate(
+          "userId",
+          "name email department"
+        );
+
+      if (!updated) {
+        return errorResponse(
+          res,
+          409,
+          "Order state changed. Refresh and retry."
+        );
+      }
+
+      // ======================================
+      // RELEASE SEAT AFTER PICKUP / CANCEL
+      // ======================================
+
+      if (
+        [
+          "Picked Up",
+          "Cancelled",
+        ].includes(
+          status
+        )
+      ) {
+        try {
+          await releaseSeat(
+            updated._id
+          );
+        } catch (error) {
+          console.error(
+            "Seat release failed:",
+            error
+          );
+        }
+      }
+
+      // ======================================
+      // NOTIFY ADMIN / CUSTOMER
+      // ======================================
+
+      notifyOrder(
+        req,
+        updated
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          status === "Confirmed"
+            ? `Order confirmed. Admin-selected seat ${updated.seatNumber}.`
+            : `Order status updated to ${status}.`,
+
+        seatNumber:
+          updated.seatNumber ?? null,
+
+        order: updated,
+      });
+    } catch (error) {
+      console.error(
+        "Update order status:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to update order status."
+      );
+    }
+  }
+);
+
+// ============================================
+// ADMIN — COUNTER PAYMENT CONFIRMATION
+// ============================================
+
+// No automatic seat allocation here.
+// Admin assigns the seat separately.
+
+router.patch(
+  "/admin/:id/counter-payment",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      if (
+        !isValidId(
+          req.params.id
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid order ID."
+        );
+      }
+
+      const order =
+        await Order.findById(
+          req.params.id
+        );
+
+      if (!order) {
+        return errorResponse(
+          res,
+          404,
+          "Order not found."
+        );
+      }
+
+      // ======================================
+      // CHECK PAYMENT METHOD
+      // ======================================
+
+      if (
+        !COUNTER_METHODS.includes(
+          order.paymentMethod
+        ) ||
+        [
+          "Cancelled",
+          "Picked Up",
+        ].includes(
+          order.status
+        )
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Order is not eligible for counter payment."
+        );
+      }
+
+      // ======================================
+      // ALREADY PAID
+      // ======================================
+
+      if (
+        order.paymentStatus ===
+        "Paid"
+      ) {
+        return res.json({
+          success: true,
+
+          message:
+            order.seatNumber != null
+              ? `Payment already received. Seat ${order.seatNumber} assigned.`
+              : "Payment already received. Waiting for Admin to choose a seat.",
+
+          order,
+        });
+      }
+
+      if (
+        order.paymentStatus !==
+        "Pending"
+      ) {
+        return errorResponse(
+          res,
+          409,
+          "Payment cannot be confirmed in this state."
+        );
+      }
+
+      // ======================================
+      // COUNTER UPI REFERENCE
+      // ======================================
+
+      const reference =
+        String(
+          req.body?.reference ||
+            ""
+        ).trim();
+
+      if (
+        order.paymentMethod ===
+          "Counter UPI" &&
+        (
+          reference.length < 4 ||
+          reference.length > 120
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Enter a valid UPI transaction reference."
+        );
+      }
+
+      // Admin must verify actual receipt of
+      // Cash/UPI before confirming payment.
+
+      // ======================================
+      // MARK PAYMENT AS PAID
+      // ======================================
+
+      const updated =
+        await Order.findOneAndUpdate(
+          {
+            _id:
+              order._id,
+
+            paymentStatus:
+              "Pending",
+
+            status: {
+              $ne: "Cancelled",
+            },
+          },
+          {
+            $set: {
+              paymentStatus:
+                "Paid",
+
+              counterPaymentReference:
+                reference.slice(
+                  0,
+                  120
+                ),
+
+              pickupTime:
+                "Waiting for Admin to assign a seat",
+            },
+          },
+          {
+            new: true,
+            runValidators: true,
+          }
+        );
+
+      if (!updated) {
+        return errorResponse(
+          res,
+          409,
+          "Payment state changed. Refresh and retry."
+        );
+      }
+
+      // ======================================
+      // SEND PAYMENT CONFIRMATION
+      // ======================================
+
+      notifyOrder(
+        req,
+        updated
+      );
+
+      notifyPayment(
+        req,
+        updated
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Payment confirmed. Admin can now select a seat manually.",
+
+        seatNumber:
+          updated.seatNumber ?? null,
+
+        order: updated,
+      });
+    } catch (error) {
+      console.error(
+        "Counter payment:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to confirm counter payment."
+      );
+    }
+  }
+);
+
+// ============================================
+// ADMIN — GET AVAILABLE SEATS
+// ============================================
+
+// Endpoint:
+// GET /api/orders/admin/seats?franchiseId=...
+
+router.get(
+  "/admin/seats",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const {
+        franchiseId,
+      } = req.query;
+
+      if (
+        !isValidId(
+          franchiseId
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid franchise ID."
+        );
+      }
+
+      const seats =
+        await listSeats(
+          franchiseId
+        );
+
+      return res.json({
+        success: true,
+
+        capacity:
+          seats.capacity,
+
+        available:
+          seats.available,
+
+        occupied:
+          seats.occupied,
+      });
+    } catch (error) {
+      console.error(
+        "Get available seats:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        error.status || 500,
+        error.status
+          ? error.message
+          : "Unable to load seats."
+      );
+    }
+  }
+);
+
+// ============================================
+// ADMIN — MANUALLY ASSIGN CUSTOM SEAT
+// ============================================
+
+// Endpoint:
+// PATCH /api/orders/admin/:id/seat
+//
+// Request body:
+// { "seatNumber": 4 }
+//
+// Only Admin can assign a seat.
+// Guest cannot call this endpoint.
+
+router.patch(
+  "/admin/:id/seat",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const {
+        seatNumber,
+      } = req.body || {};
+
+      // ======================================
+      // VALIDATE ORDER ID
+      // ======================================
+
+      if (
+        !isValidId(
+          req.params.id
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid order ID."
+        );
+      }
+
+      // ======================================
+      // CALL MANUAL SEAT SERVICE
+      // ======================================
+
+      const order =
+        await assignSeatByAdmin(
+          req.params.id,
+          seatNumber
+        );
+
+      // ======================================
+      // NOTIFY CUSTOMER / ADMIN / FRANCHISE
+      // ======================================
+
+      notifyOrder(
+        req,
+        order
+      );
+
+      const io =
+        req.app.get("io");
+
+      if (io) {
+        io.to(
+          `order_${order._id}`
+        ).emit(
+          "seat_assigned",
+          {
+            orderId:
+              order._id,
+
+            orderNumber:
+              order.orderNumber,
+
+            seatNumber:
+              order.seatNumber,
+
+            message:
+              `Admin assigned seat ${order.seatNumber}.`,
+          }
+        );
+      }
+
+      // ======================================
+      // RETURN ASSIGNED SEAT
+      // ======================================
+
+      return res.json({
+        success: true,
+
+        message:
+          `Seat ${order.seatNumber} assigned by Admin.`,
+
+        seatNumber:
+          order.seatNumber,
+
+        order,
+      });
+    } catch (error) {
+      console.error(
+        "Admin seat assignment:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        error.status || 500,
+        error.status
+          ? error.message
+          : "Unable to assign a seat."
+      );
+    }
+  }
+);
+
+// ============================================
+// GET SINGLE ORDER
+// ============================================
+
+// Registered customer/Admin only.
+//
+// Guest customer uses:
+// GET /api/kiosk/track/:code
+
+router.get(
+  "/:id",
+  protect,
+  async (req, res) => {
+    try {
+      if (
+        !isValidId(
+          req.params.id
+        )
+      ) {
+        return errorResponse(
+          res,
+          400,
+          "Invalid order ID."
+        );
+      }
+
+      const order =
+        await Order.findById(
+          req.params.id
+        )
+          .populate(
+            "userId",
+            "name email department"
+          )
+          .populate(
+            "items.menuItemId",
+            "name image emoji"
+          );
+
+      if (!order) {
+        return errorResponse(
+          res,
+          404,
+          "Order not found."
+        );
+      }
+
+      // ======================================
+      // CHECK ORDER OWNERSHIP
+      // ======================================
+
+      const ownerId =
+        order.userId?._id ||
+        order.userId;
+
+      const isOwner =
+        ownerId &&
+        String(ownerId) ===
+          String(req.user._id);
+
+      const isAdmin =
+        req.user.role === "admin";
+
+      if (
+        !isOwner &&
+        !isAdmin
+      ) {
+        return errorResponse(
+          res,
+          403,
+          "Not authorized to view this order."
+        );
+      }
+
+      return res.json({
+        success: true,
+        order,
+      });
+    } catch (error) {
+      console.error(
+        "Get order:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        500,
+        "Unable to load order."
+      );
+    }
+  }
+);
+
+// ============================================
+// EXPORT ROUTER
+// ============================================
 
 module.exports = router;

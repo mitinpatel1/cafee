@@ -1,6 +1,14 @@
 
-import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, {
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  Link,
+  useNavigate,
+} from "react-router-dom";
+
 import {
   MapPin,
   Banknote,
@@ -14,105 +22,36 @@ import { useCart } from "../../context/CartContext";
 import { useFranchiseSelection } from "../../context/FranchiseSelectionContext";
 import { api } from "../../api/api";
 
-let checkoutScriptPromise;
+// ============================================
+// LOAD RAZORPAY CHECKOUT
+// ============================================
 
-function loadRazorpay() {
-  if (window.Razorpay) return Promise.resolve();
+const loadRazorpay = () =>
+  new Promise((resolve, reject) => {
+    if (window.Razorpay) {
+      return resolve();
+    }
 
-  if (!checkoutScriptPromise) {
-    checkoutScriptPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.async = true;
-      script.onload = resolve;
-      script.onerror = () =>
-        reject(new Error("Payment gateway could not load."));
-      document.head.appendChild(script);
-    }).catch((error) => {
-      checkoutScriptPromise = null;
-      throw error;
-    });
-  }
+    const script = document.createElement("script");
 
-  return checkoutScriptPromise;
-}
+    script.src =
+      "https://checkout.razorpay.com/v1/checkout.js";
 
-async function payOnline(order) {
-  await loadRazorpay();
+    script.onload = resolve;
 
-  const setup = await api.initiatePayment(
-    order._id,
-    "Online (Razorpay)"
-  );
+    script.onerror = () =>
+      reject(
+        new Error(
+          "Could not load secure payment checkout."
+        )
+      );
 
-  return new Promise((resolve, reject) => {
-    let finished = false;
-
-    const fail = (error) => {
-      if (!finished) {
-        finished = true;
-        reject(error);
-      }
-    };
-
-    const razorpay = new window.Razorpay({
-      key: setup.keyId,
-      amount: setup.amount,
-      currency: setup.currency,
-      name: "Office Cafeteria",
-      description: `Order #${order.orderNumber}`,
-      order_id: setup.gatewayOrderId,
-      prefill: {
-        name: setup.name || "",
-      },
-      theme: {
-        color: "#ff7900",
-      },
-      retry: {
-        enabled: true,
-      },
-      handler: async (details) => {
-        if (finished) return;
-        finished = true;
-
-        try {
-          await api.verifyPayment(
-            order._id,
-            details.razorpay_payment_id,
-            details.razorpay_order_id,
-            details.razorpay_signature
-          );
-
-          resolve();
-        } catch (error) {
-          const status = await api
-            .getPaymentStatus(order._id)
-            .catch(() => null);
-
-          if (status?.paymentStatus === "Paid") {
-            resolve();
-          } else {
-            reject(
-              new Error(
-                "Payment submitted, but confirmation is pending. Check your order status before retrying."
-              )
-            );
-          }
-        }
-      },
-      modal: {
-        ondismiss: () =>
-          fail(
-            new Error(
-              "Payment window closed. Your order is saved but unpaid."
-            )
-          ),
-      },
-    });
-
-    razorpay.open();
+    document.head.appendChild(script);
   });
-}
+
+// ============================================
+// CHECKOUT PAGE
+// ============================================
 
 export const CheckoutPage = () => {
   const {
@@ -123,76 +62,194 @@ export const CheckoutPage = () => {
     clearCart,
   } = useCart();
 
-  const { franchises, selectedId } =
-    useFranchiseSelection();
+  const {
+    franchises,
+    selectedId,
+  } = useFranchiseSelection();
 
   const navigate = useNavigate();
 
-  const [method, setMethod] = useState("Counter Cash");
-  const [onlineEnabled, setOnlineEnabled] = useState(false);
+  const [method, setMethod] = useState(
+    "Counter Cash"
+  );
+
+  const [onlineEnabled, setOnlineEnabled] =
+    useState(false);
+
   const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [pendingOrder, setPendingOrder] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // ==========================================
+  // CHECK ONLINE PAYMENT AVAILABILITY
+  // ==========================================
 
   useEffect(() => {
     api
       .getPaymentConfig()
-      .then((result) =>
-        setOnlineEnabled(Boolean(result.onlineEnabled))
-      )
+      .then((result) => {
+        const enabled = Boolean(
+          result.onlineEnabled
+        );
+
+        setOnlineEnabled(enabled);
+
+        if (enabled) {
+          setMethod((current) =>
+            current === "Counter Cash"
+              ? "Online (Razorpay)"
+              : current
+          );
+        }
+      })
       .catch(() => setOnlineEnabled(false));
   }, []);
+
+  // ==========================================
+  // PLACE ORDER AND PAY
+  // ==========================================
 
   const submit = async (event) => {
     event.preventDefault();
 
-    if (loading || !selectedId) return;
+    if (loading) return;
+
+    if (!selectedId) {
+      setError("Please select a franchise.");
+      return;
+    }
+
+    if (!cartItems.length) {
+      setError("Your cart is empty.");
+      return;
+    }
 
     setLoading(true);
     setError("");
 
-    let order = pendingOrder;
+    let createdOrder;
 
     try {
-      if (!order) {
-        const response = await api.createOrder({
-          franchiseId: selectedId,
-          notes,
-          paymentMethod: method,
-          items: cartItems.map((item) => ({
-            menuItemId: item.menuItemId,
-            quantity: item.quantity,
-            instructions: item.instructions || "",
-          })),
+      const response = await api.createOrder({
+        franchiseId: selectedId,
+        notes,
+        paymentMethod: method,
+        items: cartItems.map((item) => ({
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+          instructions:
+            item.instructions || "",
+        })),
+      });
+
+      createdOrder = response.order;
+
+      // ======================================
+      // ONLINE RAZORPAY PAYMENT
+      // ======================================
+
+      if (method === "Online (Razorpay)") {
+        await loadRazorpay();
+
+        const checkout = await api.initiatePayment(
+          createdOrder._id,
+          method
+        );
+
+        await new Promise((resolve, reject) => {
+          const gateway = new window.Razorpay({
+            key: checkout.keyId,
+            amount: checkout.amount,
+            currency: "INR",
+
+            name: "OfficeBite",
+
+            description:
+              `Order ${createdOrder.orderNumber}`,
+
+            order_id: checkout.gatewayOrderId,
+
+            prefill: {
+              name: checkout.name,
+            },
+
+            handler: async (details) => {
+              try {
+                await api.verifyPayment(
+                  createdOrder._id,
+                  details.razorpay_payment_id,
+                  details.razorpay_order_id,
+                  details.razorpay_signature
+                );
+
+                resolve();
+              } catch (err) {
+                reject(err);
+              }
+            },
+
+            modal: {
+              ondismiss: () => {
+                reject(
+                  new Error(
+                    "Payment window closed. Order is awaiting payment."
+                  )
+                );
+              },
+            },
+          });
+
+          gateway.on(
+            "payment.failed",
+            (response) => {
+              reject(
+                new Error(
+                  response.error?.description ||
+                    "Payment unsuccessful."
+                )
+              );
+            }
+          );
+
+          gateway.open();
         });
-
-        order = response.order;
-
-        if (method === "Online (Razorpay)") {
-          setPendingOrder(order);
-        }
       }
 
-      if (order.paymentMethod === "Online (Razorpay)") {
-        await payOnline(order);
-      }
+      // Counter payments remain Pending.
+      // Online payment is verified above.
 
       clearCart();
-      navigate(`/track/${order._id}`);
+
+      navigate(
+        `/track/${createdOrder._id}`
+      );
     } catch (err) {
-      setError(err.message || "Checkout failed.");
+      const savedMessage = createdOrder
+        ? ` Order #${createdOrder.orderNumber} was created and may still be awaiting payment.`
+        : "";
+
+      setError(
+        `${err.message}${savedMessage}`
+      );
     } finally {
       setLoading(false);
     }
   };
+
+  // ==========================================
+  // EMPTY CART
+  // ==========================================
 
   if (!cartItems.length) {
     return (
       <div className="portal-auth-wrap">
         <div className="portal-auth-card">
           <h2>Your cart is empty</h2>
-          <Link className="ob-btn" to="/menu">
+
+          <Link
+            to="/menu"
+            className="ob-btn"
+          >
             Browse Menu
           </Link>
         </div>
@@ -200,110 +257,152 @@ export const CheckoutPage = () => {
     );
   }
 
+  // ==========================================
+  // CHECKOUT UI
+  // ==========================================
+
   return (
     <div className="portal-checkout ob-wrap">
-      <Link to="/cart" className="portal-back">
-        <ArrowLeft size={15} /> Back to cart
+
+      <Link
+        to="/cart"
+        className="portal-back"
+      >
+        <ArrowLeft size={15} />
+        Back to cart
       </Link>
 
-      <h1>Checkout</h1>
-      <p>Choose your pickup kitchen and payment method.</p>
+      <h1>One last step.</h1>
+
+      <p>
+        Choose your franchise and complete payment.
+        The service team will accept your order
+        after payment confirmation.
+      </p>
 
       {error && (
         <div className="portal-error" role="alert">
-          <AlertCircle size={16} /> {error}
+          <AlertCircle size={16} />
+          {error}
         </div>
-      )}
-
-      {pendingOrder && (
-        <p className="ob-inline-hint">
-          Order #{pendingOrder.orderNumber} is saved.{" "}
-          <Link to={`/track/${pendingOrder._id}`}>
-            View payment / order status
-          </Link>{" "}
-          before trying again. Do not create another order if money was deducted.
-        </p>
       )}
 
       <div className="portal-checkout-grid">
         <form
-          className="portal-checkout-form"
           onSubmit={submit}
+          className="portal-checkout-form"
         >
-          <label>
-            <MapPin size={18} /> Pickup franchise
 
-            <select required value={selectedId} disabled>
-              <option value="">Choose kitchen</option>
-              {franchises.map((f) => (
-                <option key={f._id} value={f._id}>
-                  {f.name} — {f.city}
+          {/* FRANCHISE */}
+          <label>
+            <MapPin size={18} />
+            Pickup Franchise
+
+            <select
+              required
+              value={selectedId}
+              disabled
+            >
+              <option value="">
+                Choose kitchen
+              </option>
+
+              {franchises.map((franchise) => (
+                <option
+                  key={franchise._id}
+                  value={franchise._id}
+                >
+                  {franchise.name} — {franchise.city}
                 </option>
               ))}
             </select>
+
+            <small>
+              Change franchise from the Menu page.
+              Existing cart items may be cleared.
+            </small>
           </label>
 
+          {/* NOTES */}
           <label>
-            Special instructions (optional)
+            Special Instructions
 
             <textarea
               rows={3}
               maxLength={500}
-              disabled={Boolean(pendingOrder)}
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(event) =>
+                setNotes(event.target.value)
+              }
               placeholder="Anything the kitchen should know?"
             />
           </label>
 
-          <fieldset
-            className="payment-choice"
-            disabled={Boolean(pendingOrder)}
-          >
-            <legend>Choose payment method</legend>
+          {/* PAYMENT OPTIONS */}
+          <fieldset className="payment-choice">
+            <legend>Choose Payment Method</legend>
 
+            {/* CASH */}
             <label
               className={
-                method === "Counter Cash" ? "chosen" : ""
+                method === "Counter Cash"
+                  ? "chosen"
+                  : ""
               }
             >
               <input
                 type="radio"
                 name="paymentMethod"
-                checked={method === "Counter Cash"}
+                checked={
+                  method === "Counter Cash"
+                }
                 onChange={() =>
                   setMethod("Counter Cash")
                 }
               />
+
               <Banknote size={22} />
 
               <span>
-                <b>Cash at counter</b>
-                <small>Pay at pickup counter</small>
+                <b>Cash at Counter</b>
+                <small>
+                  Pay first. Staff confirms receipt
+                  before accepting the order.
+                </small>
               </span>
             </label>
 
+            {/* UPI */}
             <label
               className={
-                method === "Counter UPI" ? "chosen" : ""
+                method === "Counter UPI"
+                  ? "chosen"
+                  : ""
               }
             >
               <input
                 type="radio"
                 name="paymentMethod"
-                checked={method === "Counter UPI"}
+                checked={
+                  method === "Counter UPI"
+                }
                 onChange={() =>
                   setMethod("Counter UPI")
                 }
               />
+
               <Smartphone size={22} />
 
               <span>
-                <b>UPI at counter</b>
-                <small>Scan the counter QR code</small>
+                <b>UPI at Counter</b>
+                <small>
+                  Pay via QR. Staff verifies UPI
+                  receipt before accepting.
+                </small>
               </span>
             </label>
 
+            {/* RAZORPAY */}
             <label
               className={
                 method === "Online (Razorpay)"
@@ -315,7 +414,9 @@ export const CheckoutPage = () => {
                 type="radio"
                 name="paymentMethod"
                 disabled={!onlineEnabled}
-                checked={method === "Online (Razorpay)"}
+                checked={
+                  method === "Online (Razorpay)"
+                }
                 onChange={() =>
                   setMethod("Online (Razorpay)")
                 }
@@ -324,43 +425,49 @@ export const CheckoutPage = () => {
               <CreditCard size={22} />
 
               <span>
-                <b>Pay online with Razorpay</b>
+                <b>Pay Online Securely</b>
+
                 <small>
                   {onlineEnabled
-                    ? "UPI, cards and net banking (where enabled)"
-                    : "Configure Razorpay keys to enable"}
+                    ? "Recommended. Payment verified automatically."
+                    : "Available after Razorpay setup."}
                 </small>
               </span>
             </label>
           </fieldset>
 
+          {/* SUBMIT */}
           <button
-            className="btn btn-primary"
             type="submit"
-            disabled={loading || !selectedId}
+            disabled={
+              loading || !selectedId
+            }
+            className="btn btn-primary"
           >
             {loading
-              ? "Processing…"
-              : pendingOrder
-              ? "Retry payment for this order"
+              ? "Processing..."
               : method === "Online (Razorpay)"
-              ? `Pay ₹${total} securely`
-              : "Place order · Pay at counter"}
+                ? "Pay Now · Place Order"
+                : "Create Payment-Pending Order"}
           </button>
         </form>
 
+        {/* ORDER SUMMARY */}
         <aside className="portal-order-summary">
-          <h2>Your order</h2>
+          <h2>Your Order</h2>
 
           {cartItems.map((item, index) => (
             <div
-              className="sum-line"
               key={item.menuItemId || index}
+              className="sum-line"
             >
               <span>
                 {item.quantity} × {item.name}
               </span>
-              <b>₹{item.price * item.quantity}</b>
+
+              <b>
+                ₹{item.price * item.quantity}
+              </b>
             </div>
           ))}
 
@@ -382,7 +489,8 @@ export const CheckoutPage = () => {
           </div>
 
           <p className="ob-inline-hint">
-            Final payable total is calculated by the backend.
+            Payment and preparation status will
+            update on the tracking page.
           </p>
         </aside>
       </div>

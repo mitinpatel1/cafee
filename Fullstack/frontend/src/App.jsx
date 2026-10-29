@@ -1,60 +1,88 @@
+
 import React from "react";
+
 import {
   BrowserRouter,
   Routes,
   Route,
   Navigate,
-  useLocation,
 } from "react-router-dom";
 
+// ============================================
+// CONTEXT PROVIDERS
+// ============================================
+
 import { AuthProvider } from "./context/AuthContext";
-import { FranchiseSelectionProvider } from "./context/FranchiseSelectionContext";
+
 import { CartProvider } from "./context/CartContext";
+
+import { FranchiseSelectionProvider } from "./context/FranchiseSelectionContext";
+
 import { SocketProvider } from "./context/SocketContext";
 
-import { CustomerLayout } from "./components/layout/CustomerLayout";
+// ============================================
+// LAYOUT COMPONENTS
+// ============================================
+
 import { AdminLayout } from "./components/layout/AdminLayout";
+
 import { FranchiseLayout } from "./components/layout/FranchiseLayout";
+
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 
+// ============================================
+// SELF-SERVICE KIOSK
+// ============================================
 
-import {
-  UtensilsCrossed,
-  MapPin,
-  Clock,
-  Phone,
-} from "lucide-react";
+import { KioskPage } from "./pages/kiosk/KioskPage";
 
-// User Pages
+// ============================================
+// AUTHENTICATION PAGES
+// ============================================
+
 import { LoginPage } from "./pages/auth/LoginPage";
-import { HomePage } from "./pages/customer/HomePage";
-import { MenuPage } from "./pages/customer/MenuPage";
-import { CartPage } from "./pages/customer/CartPage";
-import { CheckoutPage } from "./pages/customer/CheckoutPage";
-import { MyOrdersPage } from "./pages/customer/MyOrdersPage";
-import { ProfilePage } from "./pages/customer/ProfilePage";
-import { OrderTrackingPage } from "./pages/customer/OrderTrackingPage";
 
-// Admin Pages
-import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
+import { FranchiseRegistrationPage } from "./pages/auth/FranchiseRegistrationPage";
+
+// ============================================
+// ADMIN DASHBOARD PAGES
+// ============================================
+
+
+import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
+
+
 import { AdminMenuPage } from "./pages/admin/AdminMenuPage";
+
 import { AdminOrdersPage } from "./pages/admin/AdminOrdersPage";
+
 import { AdminInventoryPage } from "./pages/admin/AdminInventoryPage";
+
 import { AdminReportsPage } from "./pages/admin/AdminReportsPage";
 
-// Franchise Pages
-import { FranchiseDashboardPage } from "./pages/franchise/FranchiseDashboardPage";
-import { FranchiseBranchesPage } from "./pages/franchise/FranchiseBranchesPage";
-import { FranchiseRegistrationPage } from "./pages/auth/FranchiseRegistrationPage";
-import { FranchiseMenuPage } from "./pages/franchise/FranchiseMenuPage";
-import { FranchiseOrdersPage } from "./pages/franchise/FranchiseOrdersPage";
-import { FranchiseInventoryPage } from "./pages/franchise/FranchiseInventoryPage";
-import { FranchiseReportsPage } from "./pages/franchise/FranchiseReportsPage";
-import { FranchiseSettingsPage } from "./pages/franchise/FranchiseSettingsPage";
 import { ServiceFranchisesPage } from "./pages/admin/ServiceFranchisesPage";
 
-// Customer pages use a dedicated dashboard shell. Admin and franchise layouts are unchanged.
-const EmployeeLayout = ({ children }) => <CustomerLayout>{children}</CustomerLayout>;
+// ============================================
+// FRANCHISE DASHBOARD PAGES
+// ============================================
+
+import { FranchiseDashboardPage } from "./pages/franchise/FranchiseDashboardPage";
+
+import { FranchiseBranchesPage } from "./pages/franchise/FranchiseBranchesPage";
+
+import { FranchiseMenuPage } from "./pages/franchise/FranchiseMenuPage";
+
+import { FranchiseOrdersPage } from "./pages/franchise/FranchiseOrdersPage";
+
+import { FranchiseInventoryPage } from "./pages/franchise/FranchiseInventoryPage";
+
+import { FranchiseReportsPage } from "./pages/franchise/FranchiseReportsPage";
+
+import { FranchiseSettingsPage } from "./pages/franchise/FranchiseSettingsPage";
+
+// ============================================
+// MAIN APP COMPONENT
+// ============================================
 
 export default function App() {
   return (
@@ -62,140 +90,311 @@ export default function App() {
       <AuthProvider>
         <CartProvider>
           <FranchiseSelectionProvider>
-          <SocketProvider>
-            <Routes>
-              {/* Employee / Public Routes */}
+            <SocketProvider>
+              <Routes>
 
-              <Route
-                path="/"
-                element={
-                  <EmployeeLayout>
-                    <MenuPage />
-                  </EmployeeLayout>
-                }
-              />
+                {/* ====================================
+                    PUBLIC SELF-SERVICE KIOSK
+                    NO CUSTOMER LOGIN REQUIRED
+                ==================================== */}
 
-              <Route path="/discover" element={<EmployeeLayout><HomePage /></EmployeeLayout>} />
+                <Route
+                  path="/"
+                  element={<KioskPage />}
+                />
 
-              <Route
-                path="/login"
-                element={
-                  <EmployeeLayout>
-                    <LoginPage />
-                  </EmployeeLayout>
-                }
-              />
+                <Route
+                  path="/kiosk"
+                  element={<KioskPage />}
+                />
 
-              <Route
-                path="/menu"
-                element={
-                  <EmployeeLayout>
-                    <MenuPage />
-                  </EmployeeLayout>
-                }
-              />
+                {/* ====================================
+                    OLD CUSTOMER ROUTES
+                    REDIRECT TO PUBLIC KIOSK
+                ==================================== */}
 
-              <Route
-                path="/cart"
-                element={
-                  <EmployeeLayout>
-                    <CartPage />
-                  </EmployeeLayout>
-                }
-              />
+                <Route
+                  path="/discover"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
 
-              <Route
-                path="/checkout"
-                element={
-                  <EmployeeLayout>
-                    <ProtectedRoute allowedRoles={["user", "employee"]}>
-                      <CheckoutPage />
+                <Route
+                  path="/login"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/menu"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/cart"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/checkout"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/my-orders"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/order-history"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/profile"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                <Route
+                  path="/track/:orderId"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+                {/* ====================================
+                    ADMIN AUTHENTICATION
+                ==================================== */}
+
+                <Route
+                  path="/admin/login"
+                  element={
+                    <LoginPage portal="admin" />
+                  }
+                />
+
+                {/* ====================================
+                    FRANCHISE AUTHENTICATION
+                ==================================== */}
+
+                <Route
+                  path="/franchise/login"
+                  element={
+                    <LoginPage portal="franchise" />
+                  }
+                />
+
+                <Route
+                  path="/franchise/register"
+                  element={
+                    <FranchiseRegistrationPage />
+                  }
+                />
+
+                {/* ====================================
+                    ADMIN PROTECTED DASHBOARD
+                ==================================== */}
+
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute
+                      allowedRoles={["admin"]}
+                      loginPath="/admin/login"
+                    >
+                      <AdminLayout />
                     </ProtectedRoute>
-                  </EmployeeLayout>
-                }
-              />
+                  }
+                >
 
-              <Route
-                path="/my-orders"
-                element={
-                  <EmployeeLayout>
-                    <ProtectedRoute allowedRoles={["user", "employee"]}>
-                      <MyOrdersPage />
+                  <Route
+                    index
+                    element={
+                      <Navigate
+                        to="dashboard"
+                        replace
+                      />
+                    }
+                  />
+
+                  <Route
+                    path="dashboard"
+                    element={
+                      <AdminDashboardPage />
+                    }
+                  />
+
+                  <Route
+                    path="orders"
+                    element={
+                      <AdminOrdersPage />
+                    }
+                  />
+
+                  <Route
+                    path="menu"
+                    element={
+                      <AdminMenuPage />
+                    }
+                  />
+
+                  <Route
+                    path="franchises"
+                    element={
+                      <ServiceFranchisesPage />
+                    }
+                  />
+
+                  <Route
+                    path="inventory"
+                    element={
+                      <AdminInventoryPage />
+                    }
+                  />
+
+                  <Route
+                    path="reports"
+                    element={
+                      <AdminReportsPage />
+                    }
+                  />
+
+                </Route>
+
+                {/* ====================================
+                    FRANCHISE PROTECTED DASHBOARD
+                ==================================== */}
+
+                <Route
+                  path="/franchise"
+                  element={
+                    <ProtectedRoute
+                      allowedRoles={["franchise"]}
+                      loginPath="/franchise/login"
+                    >
+                      <FranchiseLayout />
                     </ProtectedRoute>
-                  </EmployeeLayout>
-                }
-              />
+                  }
+                >
 
-              <Route
-                path="/order-history"
-                element={
-                  <EmployeeLayout>
-                    <ProtectedRoute allowedRoles={["user", "employee"]}>
-                      <MyOrdersPage historyOnly />
-                    </ProtectedRoute>
-                  </EmployeeLayout>
-                }
-              />
+                  <Route
+                    index
+                    element={
+                      <Navigate
+                        to="dashboard"
+                        replace
+                      />
+                    }
+                  />
 
-              <Route
-                path="/profile"
-                element={
-                  <EmployeeLayout>
-                    <ProtectedRoute allowedRoles={["user", "employee"]}>
-                      <ProfilePage />
-                    </ProtectedRoute>
-                  </EmployeeLayout>
-                }
-              />
+                  <Route
+                    path="dashboard"
+                    element={
+                      <FranchiseDashboardPage />
+                    }
+                  />
 
-              <Route
-                path="/track/:orderId"
-                element={
-                  <EmployeeLayout>
-                    <ProtectedRoute allowedRoles={["user", "employee"]}>
-                      <OrderTrackingPage />
-                    </ProtectedRoute>
-                  </EmployeeLayout>
-                }
-              />
+                  <Route
+                    path="branches"
+                    element={
+                      <FranchiseBranchesPage />
+                    }
+                  />
 
-              {/* Franchise registration and dedicated private logins */}
-              <Route path="/franchise/register" element={<FranchiseRegistrationPage />} />
-              <Route path="/franchise/login" element={<LoginPage portal="franchise" />} />
-              <Route path="/admin/login" element={<LoginPage portal="admin" />} />
+                  <Route
+                    path="orders"
+                    element={
+                      <FranchiseOrdersPage />
+                    }
+                  />
 
-              {/* Service administrator only */}
-              <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]} loginPath="/admin/login"><AdminLayout /></ProtectedRoute>}>
-                <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<AdminDashboardPage />} />
-                <Route path="franchises" element={<ServiceFranchisesPage />} />
-                <Route path="menu" element={<AdminMenuPage />} />
-                
-                <Route path="orders" element={<AdminOrdersPage />} />
-                <Route path="inventory" element={<AdminInventoryPage />} />
-                <Route path="reports" element={<AdminReportsPage />} />
-              </Route>
+                  <Route
+                    path="menu"
+                    element={
+                      <FranchiseMenuPage />
+                    }
+                  />
 
-              {/* Franchise owner: never use admin APIs or see another owner's data */}
-              <Route path="/franchise" element={<ProtectedRoute allowedRoles={["franchise"]} loginPath="/franchise/login"><FranchiseLayout /></ProtectedRoute>}>
-                <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<FranchiseDashboardPage />} />
-                <Route path="branches" element={<FranchiseBranchesPage />} />
-                <Route path="orders" element={<FranchiseOrdersPage />} />
-                <Route path="menu" element={<FranchiseMenuPage />} />
-                <Route path="inventory" element={<FranchiseInventoryPage />} />
-                <Route path="reports" element={<FranchiseReportsPage />} />
-                <Route path="settings" element={<FranchiseSettingsPage />} />
-              </Route>
+                  <Route
+                    path="inventory"
+                    element={
+                      <FranchiseInventoryPage />
+                    }
+                  />
 
-              {/* Fallback Route */}
+                  <Route
+                    path="reports"
+                    element={
+                      <FranchiseReportsPage />
+                    }
+                  />
 
-              <Route
-                path="*"
-                element={<Navigate to="/" replace />}
-              />
-            </Routes>
-          </SocketProvider>
+                  <Route
+                    path="settings"
+                    element={
+                      <FranchiseSettingsPage />
+                    }
+                  />
+
+                </Route>
+
+                {/* ====================================
+                    FALLBACK ROUTE
+                ==================================== */}
+
+                <Route
+                  path="*"
+                  element={
+                    <Navigate
+                      to="/kiosk"
+                      replace
+                    />
+                  }
+                />
+
+              </Routes>
+            </SocketProvider>
           </FranchiseSelectionProvider>
         </CartProvider>
       </AuthProvider>
