@@ -1908,54 +1908,78 @@ export function KioskPage() {
     };
   }, []);
 
-  // ====================================================
-  // LOAD MENU
-  // ====================================================
+  
+  // ============================================
+  // LOAD MENU — REAL MENU OR CATALOG PREVIEW
+  // ============================================
 
   useEffect(() => {
     let mounted = true;
 
-    if (!franchiseId) {
-      setMenu([]);
-      setLoading(false);
-      return;
-    }
-
+    setCart([]);
+    setMenu([]);
     setLoading(true);
 
-    api(
-      `/menu?franchiseId=${encodeURIComponent(
-        franchiseId
-      )}&isAvailable=true`
-    )
-      .then((data) => {
-        if (!mounted) return;
+    const loadMenu = async () => {
+      try {
+        const endpoint = franchiseId
+          ? `/menu?franchiseId=${encodeURIComponent(
+              franchiseId
+            )}&isAvailable=true`
+          : "/menu?isAvailable=true";
 
-        const items = data.items || [];
+        const response = await api(endpoint);
+
+        let items = Array.isArray(response.items)
+          ? response.items
+          : [];
+
+        // If a selected franchise has no real menu yet,
+        // show the default catalog as a preview.
+        const realItems = items.filter(
+          (item) => !item.catalogPreview
+        );
+
+        if (franchiseId && realItems.length === 0) {
+          const preview = await api(
+            "/menu?isAvailable=true"
+          );
+
+          items = Array.isArray(preview.items)
+            ? preview.items
+            : [];
+        }
+
+        if (!mounted) return;
 
         setMenu(
           items.filter(
-            (item) =>
-              item.isAvailable !== false &&
-              !item.catalogPreview
+            (item) => item.isAvailable !== false
           )
         );
-      })
-      .catch((err) => {
-        if (mounted) {
-          setError(err.message);
-        }
-      })
-      .finally(() => {
+
+        setError("");
+      } catch (err) {
+        if (!mounted) return;
+
+        setMenu([]);
+        setError(
+          err.message || "Unable to load menu"
+        );
+      } finally {
         if (mounted) {
           setLoading(false);
         }
-      });
+      }
+    };
+
+    loadMenu();
 
     return () => {
       mounted = false;
     };
   }, [franchiseId]);
+
 
   // ====================================================
   // MENU FILTERING
@@ -3234,6 +3258,10 @@ export function KioskPage() {
               ) : (
                 <div className="cafe-grid">
                   {visible.map((food) => {
+                    const canOrder =
+  Boolean(franchiseId) &&
+  !food.catalogPreview &&
+  food.isAvailable !== false;
                     const qty =
                       cart.find(
                         (item) =>
@@ -3296,64 +3324,52 @@ export function KioskPage() {
                             Made with care
                           </p>
 
-                          <div className="cafe-food-bottom">
-                            <strong>
-                              {fmt(food.price)}
-                            </strong>
+                          
+<div className="cafe-food-bottom">
+  <strong>{fmt(food.price)}</strong>
 
-                            {qty > 0 ? (
-                              <div className="cafe-qty">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    changeQty(
-                                      food,
-                                      -1
-                                    )
-                                  }
-                                  aria-label="Decrease quantity"
-                                >
-                                  <Minus
-                                    size={16}
-                                  />
-                                </button>
+  {!canOrder ? (
+    <button
+      className="cafe-add"
+      type="button"
+      disabled
+      title="A registered cafeteria menu is required"
+    >
+      Preview Only
+    </button>
+  ) : qty > 0 ? (
+    <div className="cafe-qty">
+      <button
+        type="button"
+        onClick={() => changeQty(food, -1)}
+        aria-label="Decrease quantity"
+      >
+        <Minus size={16} />
+      </button>
 
-                                <b>{qty}</b>
+      <b>{qty}</b>
 
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    changeQty(
-                                      food,
-                                      1
-                                    )
-                                  }
-                                  disabled={
-                                    qty >= 50
-                                  }
-                                  aria-label="Increase quantity"
-                                >
-                                  <Plus
-                                    size={16}
-                                  />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                className="cafe-add"
-                                onClick={() =>
-                                  changeQty(
-                                    food,
-                                    1
-                                  )
-                                }
-                              >
-                                <Plus size={16} />
-                                Add
-                              </button>
-                            )}
-                          </div>
+      <button
+        type="button"
+        onClick={() => changeQty(food, 1)}
+        disabled={qty >= 50}
+        aria-label="Increase quantity"
+      >
+        <Plus size={16} />
+      </button>
+    </div>
+  ) : (
+    <button
+      className="cafe-add"
+      type="button"
+      onClick={() => changeQty(food, 1)}
+    >
+      <Plus size={16} />
+      Add
+    </button>
+  )}
+</div>
+
                         </div>
                       </article>
                     );
