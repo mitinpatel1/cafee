@@ -7,16 +7,9 @@ import React, {
 } from "react";
 
 import { useSearchParams } from "react-router-dom";
-
 import { api } from "../../api/api";
-
-import {
-  useSocket,
-} from "../../context/SocketContext";
-
-import {
-  portalMoney,
-} from "../../components/ui/PortalPieces";
+import { useSocket } from "../../context/SocketContext";
+import { portalMoney } from "../../components/ui/PortalPieces";
 
 import {
   PageHead,
@@ -43,7 +36,7 @@ import {
 } from "lucide-react";
 
 // ============================================
-// ORDER STATUS CONFIGURATION
+// CONSTANTS
 // ============================================
 
 const statuses = [
@@ -76,200 +69,83 @@ const counterMethods = [
   "Cash on Pickup",
 ];
 
-// ============================================
-// HELPERS
-// ============================================
+const formatDate = (value) =>
+  value
+    ? new Date(value).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "—";
 
-const formatDate = (value) => {
-  if (!value) return "—";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-
-  return date.toLocaleString("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-};
-
-const getFranchiseId = (order) =>
-  order.franchiseId?._id ||
-  order.franchiseId ||
-  "";
-
-// ============================================
-// ADMIN AUTHENTICATED REQUEST
-// ============================================
-
-// Uses the same token as frontend/src/api/api.js.
-
-async function adminRequest(path, options = {}) {
-  const token = localStorage.getItem(
-    "officebite_token"
-  );
-
-  if (!token) {
-    throw new Error(
-      "Admin login required."
-    );
-  }
-
-  const response = await fetch(
-    `/api/orders${path}`,
-    {
-      cache: "no-store",
-      ...options,
-
-      headers: {
-        "Content-Type": "application/json",
-
-        Authorization:
-          `Bearer ${token}`,
-
-        ...(options.headers || {}),
-      },
-    }
-  );
-
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  if (
-    !response.ok ||
-    data.success === false
-  ) {
-    throw new Error(
-      data.message ||
-        `Request failed (${response.status})`
-    );
-  }
-
-  return data;
-}
+const customerHasSeat = (order) =>
+  Number.isInteger(Number(order?.seatNumber)) &&
+  Number(order?.seatNumber) > 0;
 
 // ============================================
 // ADMIN ORDERS PAGE
 // ============================================
 
 export const AdminOrdersPage = () => {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // ========================================
-  // STATES
-  // ========================================
+  const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(null);
 
-  const [orders, setOrders] =
-    useState([]);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
-  const [loading, setLoading] =
-    useState(true);
+  const [eta, setEta] = useState({});
+  const [refs, setRefs] = useState({});
 
-  const [filter, setFilter] =
-    useState("All");
-
-  const [search, setSearch] =
-    useState("");
-
-  const [expanded, setExpanded] =
-    useState(null);
-
-  const [busy, setBusy] =
-    useState(null);
-
-  const [error, setError] =
-    useState("");
-
-  const [notice, setNotice] =
-    useState("");
-
-  const [eta, setEta] =
-    useState({});
-
-  const [refs, setRefs] =
-    useState({});
-
-  // Selected seat for each order independently.
-  const [
-    selectedSeats,
-    setSelectedSeats,
-  ] = useState({});
-
-  // Seat availability per franchise.
-  const [
-    seatsByFranchise,
-    setSeatsByFranchise,
-  ] = useState({});
-
-  const [
-    seatsLoading,
-    setSeatsLoading,
-  ] = useState({});
-
-  const [searchParams] =
-    useSearchParams();
+  const [searchParams] = useSearchParams();
+  const { socket } = useSocket();
 
   const query = (
     searchParams.get("q") || ""
-  )
-    .trim()
-    .toLowerCase();
+  ).trim().toLowerCase();
 
-  const { socket } = useSocket();
+  // ==========================================
+  // LOAD ORDERS
+  // ==========================================
 
-  // ========================================
-  // FETCH ALL CUSTOMER ORDERS
-  // ========================================
+  const refresh = useCallback(async () => {
+    try {
+      const result = await api.getAllOrders();
 
-  const refresh = useCallback(
-    async () => {
-      try {
-        const result =
-          await api.getAllOrders();
-
-        setOrders(
-          Array.isArray(
-            result.orders
-          )
-            ? result.orders
-            : []
-        );
-      } catch (err) {
-        setError(
-          err.message ||
-            "Unable to load orders."
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  // ========================================
-  // INITIAL LOAD
-  // ========================================
+      setOrders(
+        Array.isArray(result.orders)
+          ? result.orders
+          : []
+      );
+    } catch (err) {
+      setError(
+        err.message || "Unable to load orders."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // ========================================
-  // REAL-TIME SOCKET UPDATES
-  // ========================================
+  // ==========================================
+  // REAL-TIME UPDATES
+  // ==========================================
 
   useEffect(() => {
     if (!socket) return;
 
-    const update = () => {
-      refresh();
-    };
+    const update = () => refresh();
 
     const events = [
       "new_order",
       "order_status_updated",
+      "order_tracking_update",
       "payment_confirmed",
       "franchise_order_updated",
     ];
@@ -283,557 +159,280 @@ export const AdminOrdersPage = () => {
         socket.off(event, update);
       });
     };
-  }, [
-    socket,
-    refresh,
-  ]);
+  }, [socket, refresh]);
 
-  // ========================================
-  // AUTOMATIC ORDERS REFRESH
-  // ========================================
+  // ==========================================
+  // BACKUP REFRESH
+  // ==========================================
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const timer = setInterval(() => {
       if (!document.hidden) {
         refresh();
       }
-    }, 15000);
+    }, 10000);
 
-    return () =>
-      clearInterval(interval);
+    return () => clearInterval(timer);
   }, [refresh]);
 
-  // ========================================
-  // FETCH AVAILABLE / OCCUPIED SEATS
-  // ========================================
+  // ==========================================
+  // EXPAND ORDER
+  // ==========================================
 
-  const getSeats = useCallback(
-    async (franchiseId) => {
-      if (!franchiseId) return;
-
-      setSeatsLoading(
-        (previous) => ({
-          ...previous,
-          [franchiseId]: true,
-        })
-      );
-
-      try {
-        const result =
-          await adminRequest(
-            `/admin/seats?franchiseId=${encodeURIComponent(
-              franchiseId
-            )}`
-          );
-
-        setSeatsByFranchise(
-          (previous) => ({
-            ...previous,
-            [franchiseId]:
-              result,
-          })
-        );
-
-        return result;
-      } catch (err) {
-        setError(
-          err.message ||
-            "Unable to load available seats."
-        );
-
-        return null;
-      } finally {
-        setSeatsLoading(
-          (previous) => ({
-            ...previous,
-            [franchiseId]: false,
-          })
-        );
-      }
-    },
-    []
-  );
-
-  // ========================================
-  // EXPAND CUSTOMER ORDER
-  // ========================================
-
-  const openOrder = async (order) => {
-    if (
-      expanded === order._id
-    ) {
-      setExpanded(null);
-      return;
-    }
-
-    setExpanded(
-      order._id
-    );
-
-    setError("");
-
-    await getSeats(
-      getFranchiseId(order)
+  const openOrder = (order) => {
+    setExpanded((current) =>
+      current === order._id
+        ? null
+        : order._id
     );
   };
 
-  // ========================================
-  // ADMIN ASSIGN CUSTOM SEAT
-  // ========================================
+  // ==========================================
+  // VERIFY COUNTER PAYMENT
+  // SEAT IS NOT ASSIGNED HERE
+  // ==========================================
 
-  const assignCustomSeat =
-    async (order) => {
-      if (busy) return;
+  const confirmCounterPayment = async (order) => {
+    if (busy) return;
 
-      const seatNumber = Number(
-        selectedSeats[order._id]
+    const reference = String(
+      refs[order._id] || ""
+    ).trim();
+
+    if (
+      order.paymentMethod === "Counter UPI" &&
+      (
+        reference.length < 4 ||
+        reference.length > 120
+      )
+    ) {
+      setError(
+        "Enter a valid UPI transaction reference."
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Have you received ${portalMoney(
+          order.total
+        )} via ${order.paymentMethod}?`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(order._id);
+    setError("");
+    setNotice("");
+
+    try {
+      await api.collectCounterPayment(
+        order._id,
+        reference
       );
 
-      // Validate manually chosen seat.
-      if (
-        !Number.isInteger(
-          seatNumber
-        ) ||
-        seatNumber < 1
-      ) {
-        setError(
-          "Select an available seat before assigning."
-        );
-
-        return;
-      }
-
-      // Payment should already be verified.
-      if (
-        order.paymentStatus !==
-        "Paid"
-      ) {
-        setError(
-          "Verify payment before assigning a seat."
-        );
-
-        return;
-      }
-
-      if (
-        order.seatNumber != null
-      ) {
-        setError(
-          `This order already has Seat ${order.seatNumber}.`
-        );
-
-        return;
-      }
-
-      const franchiseId =
-        getFranchiseId(order);
-
-      // Verify current availability.
-      const latestSeats =
-        await getSeats(franchiseId);
-
-      if (!latestSeats) return;
-
-      if (
-        !latestSeats.available?.includes(
-          seatNumber
-        )
-      ) {
-        setError(
-          `Seat ${seatNumber} is no longer available. Choose another seat.`
-        );
-
-        return;
-      }
-
-      const confirmed =
-        window.confirm(
-          `Assign Seat ${seatNumber} to ${orderId(
-            order
-          )}?`
-        );
-
-      if (!confirmed) return;
-
-      setBusy(
-        order._id
+      setNotice(
+        `Payment verified for ${orderId(
+          order
+        )}. Customer can now select a seat.`
       );
 
-      setError("");
-      setNotice("");
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
-      try {
-        // ====================================
-        // ADMIN-ONLY SEAT ASSIGNMENT API
-        // ====================================
+  // ==========================================
+  // UPDATE ORDER STATUS
+  // ==========================================
 
-        const result =
-          await adminRequest(
-            `/admin/${order._id}/seat`,
-            {
-              method: "PATCH",
+  const updateStatus = async (order, status) => {
+    if (busy) return;
 
-              body:
-                JSON.stringify({
-                  seatNumber,
-                }),
-            }
-          );
+    // Payment must be verified.
+    if (
+      status !== "Cancelled" &&
+      order.paymentStatus !== "Paid"
+    ) {
+      setError(
+        "Payment must be verified first."
+      );
+      return;
+    }
 
+    // Customer must choose seat.
+    // Admin is not allowed to assign one.
+    if (
+      status === "Confirmed" &&
+      !customerHasSeat(order)
+    ) {
+      setError(
+        "Wait until the customer confirms their seat."
+      );
+      return;
+    }
+
+    if (
+      status === "Cancelled" &&
+      order.paymentStatus === "Paid"
+    ) {
+      setError(
+        "Paid orders require a refund before cancellation."
+      );
+      return;
+    }
+
+    let minutes;
+
+    if (
+      ["Confirmed", "Preparing"].includes(
+        status
+      )
+    ) {
+      minutes = Number(
+        eta[order._id] ??
+          order.readyInMinutes ??
+          15
+      );
+
+      if (
+        !Number.isInteger(minutes) ||
+        minutes < 1 ||
+        minutes > 180
+      ) {
+        setError(
+          "ETA must be between 1 and 180 minutes."
+        );
+        return;
+      }
+    }
+
+    if (
+      !window.confirm(
+        `Move ${orderId(order)} to ${status}?`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(order._id);
+    setError("");
+    setNotice("");
+
+    try {
+      await api.updateOrderStatus(
+        order._id,
+        status,
+        minutes
+      );
+
+      if (status === "Confirmed") {
         setNotice(
-          `Seat ${result.seatNumber} assigned to ${orderId(
-            order
-          )}. Customer tracking screen will update automatically.`
+          `${orderId(order)} confirmed. Kiosk will automatically return to the menu.`
         );
-
-        setSelectedSeats(
-          (previous) => ({
-            ...previous,
-            [order._id]: "",
-          })
-        );
-
-        await refresh();
-
-        await getSeats(
-          franchiseId
-        );
-      } catch (err) {
-        setError(
-          err.message ||
-            "Unable to assign seat."
-        );
-
-        await getSeats(
-          franchiseId
-        );
-      } finally {
-        setBusy(null);
-      }
-    };
-
-  // ========================================
-  // CONFIRM COUNTER PAYMENT
-  // ========================================
-
-  const confirmCounterPayment =
-    async (order) => {
-      if (busy) return;
-
-      const reference = String(
-        refs[order._id] || ""
-      ).trim();
-
-      // Counter UPI reference.
-      if (
-        order.paymentMethod ===
-          "Counter UPI" &&
-        (
-          reference.length < 4 ||
-          reference.length > 120
-        )
-      ) {
-        setError(
-          "Enter a valid UPI transaction reference."
-        );
-
-        return;
-      }
-
-      const confirmed =
-        window.confirm(
-          `Have you actually received ${portalMoney(
-            order.total
-          )} via ${order.paymentMethod}?`
-        );
-
-      if (!confirmed) return;
-
-      setBusy(
-        order._id
-      );
-
-      setError("");
-      setNotice("");
-
-      try {
-        // Admin manually verifies cash/UPI.
-        await api.collectCounterPayment(
-          order._id,
-          reference
-        );
-
+      } else {
         setNotice(
-          `Payment verified for ${orderId(
-            order
-          )}. Now assign a seat manually.`
+          `${orderId(order)} status changed to ${status}.`
         );
-
-        await refresh();
-
-        await getSeats(
-          getFranchiseId(order)
-        );
-      } catch (err) {
-        setError(
-          err.message ||
-            "Payment verification failed."
-        );
-      } finally {
-        setBusy(null);
-      }
-    };
-
-  // ========================================
-  // UPDATE ORDER STATUS / ETA
-  // ========================================
-
-  const updateStatus =
-    async (order, status) => {
-      if (busy) return;
-
-      // Payment first.
-      if (
-        status !==
-          "Cancelled" &&
-        order.paymentStatus !==
-          "Paid"
-      ) {
-        setError(
-          "Payment must be verified first."
-        );
-
-        return;
       }
 
-      // Manual seat before confirmation.
-      if (
-        status ===
-          "Confirmed" &&
-        order.seatNumber == null
-      ) {
-        setError(
-          "Assign a custom seat before confirming this order."
-        );
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
-        return;
-      }
-
-      // Paid orders need refund handling.
-      if (
-        status ===
-          "Cancelled" &&
-        order.paymentStatus ===
-          "Paid"
-      ) {
-        setError(
-          "Paid orders require a refund before cancellation."
-        );
-
-        return;
-      }
-
-      let minutes;
-
-      if (
-        [
-          "Confirmed",
-          "Preparing",
-        ].includes(status)
-      ) {
-        minutes = Number(
-          eta[order._id] ??
-            order.readyInMinutes ??
-            15
-        );
-
-        if (
-          !Number.isInteger(
-            minutes
-          ) ||
-          minutes < 1 ||
-          minutes > 180
-        ) {
-          setError(
-            "ETA must be between 1 and 180 minutes."
-          );
-
-          return;
-        }
-      }
-
-      const confirmed =
-        window.confirm(
-          `Move ${orderId(
-            order
-          )} to ${status}?`
-        );
-
-      if (!confirmed) return;
-
-      setBusy(
-        order._id
-      );
-
-      setError("");
-      setNotice("");
-
-      try {
-        await api.updateOrderStatus(
-          order._id,
-          status,
-          minutes
-        );
-
-        setNotice(
-          `${orderId(
-            order
-          )}: ${status}${
-            status === "Picked Up"
-              ? " — seat released."
-              : "."
-          }`
-        );
-
-        await refresh();
-
-        await getSeats(
-          getFranchiseId(order)
-        );
-      } catch (err) {
-        setError(
-          err.message ||
-            "Unable to update order status."
-        );
-      } finally {
-        setBusy(null);
-      }
-    };
-
-  // ========================================
-  // DASHBOARD METRICS
-  // ========================================
+  // ==========================================
+  // METRICS
+  // ==========================================
 
   const metrics = useMemo(
     () => ({
       total: orders.length,
 
-      pending:
-        orders.filter(
-          (order) =>
-            order.status ===
-            "Pending"
-        ).length,
+      pending: orders.filter(
+        (order) => order.status === "Pending"
+      ).length,
 
-      preparing:
-        orders.filter(
-          (order) =>
-            order.status ===
-            "Preparing"
-        ).length,
+      preparing: orders.filter(
+        (order) => order.status === "Preparing"
+      ).length,
 
-      paidWaiting:
-        orders.filter(
-          (order) =>
-            order.paymentStatus ===
-              "Paid" &&
-            order.seatNumber == null &&
-            ![
-              "Cancelled",
-              "Picked Up",
-            ].includes(
-              order.status
-            )
-        ).length,
+      seatPending: orders.filter(
+        (order) =>
+          order.paymentStatus === "Paid" &&
+          !customerHasSeat(order) &&
+          !["Cancelled", "Picked Up"].includes(
+            order.status
+          )
+      ).length,
     }),
     [orders]
   );
 
-  // ========================================
-  // FILTER MULTIPLE CUSTOMER ORDERS
-  // ========================================
+  // ==========================================
+  // FILTER ORDERS
+  // ==========================================
 
   const filtered = useMemo(
     () =>
-      orders.filter(
-        (order) => {
-          const text = [
-            order.orderNumber,
-            order.trackingCode,
-            order.userId?.name,
-            order.franchiseId?.name,
-            order.seatNumber,
-            orderItemsText(order),
-          ]
-            .filter(
-              (item) =>
-                item !== null &&
-                item !== undefined
-            )
-            .join(" ")
-            .toLowerCase();
+      orders.filter((order) => {
+        const text = [
+          order.orderNumber,
+          order.trackingCode,
+          order.userId?.name,
+          order.franchiseId?.name,
+          order.seatNumber,
+          orderItemsText(order),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
 
-          const matchesStatus =
+        return (
+          (
             filter === "All" ||
-            order.status === filter;
-
-          const matchesSearch =
-            text.includes(
-              search
-                .trim()
-                .toLowerCase()
-            );
-
-          const matchesQuery =
-            text.includes(query);
-
-          return (
-            matchesStatus &&
-            matchesSearch &&
-            matchesQuery
-          );
-        }
-      ),
-    [
-      orders,
-      search,
-      filter,
-      query,
-    ]
+            order.status === filter
+          ) &&
+          text.includes(
+            search.trim().toLowerCase()
+          ) &&
+          text.includes(query)
+        );
+      }),
+    [orders, search, filter, query]
   );
 
-  // ========================================
-  // RENDER ADMIN DASHBOARD
-  // ========================================
+  // ==========================================
+  // UI
+  // ==========================================
 
   return (
     <div className="ob-portal-page cf-page">
-
-      {/* ====================================
-          PAGE HEADING
-      ==================================== */}
-
       <PageHead
         title="Order Management"
-        subtitle="Verify payments, assign custom seats and manage multiple customer orders."
+        subtitle="Verify payments and manage orders. Customers select their own seats."
       >
         <button
-          className="cf-outlined"
           type="button"
-          disabled={Boolean(busy)}
+          className="cf-outlined"
           onClick={refresh}
+          disabled={Boolean(busy)}
         >
           <RefreshCw size={16} />
           Refresh
         </button>
       </PageHead>
 
-      {/* ====================================
-          DASHBOARD METRICS
-      ==================================== */}
+      {/* DASHBOARD METRICS */}
 
       <div className="cf-stat-grid">
-
         <Metric
           icon={ShoppingBag}
           label="Total Orders"
@@ -843,7 +442,7 @@ export const AdminOrdersPage = () => {
 
         <Metric
           icon={Clock3}
-          label="Pending"
+          label="Pending Orders"
           value={metrics.pending}
           sub="Awaiting action"
           tint="peach"
@@ -859,17 +458,14 @@ export const AdminOrdersPage = () => {
 
         <Metric
           icon={Armchair}
-          label="Paid / Seat Pending"
-          value={metrics.paidWaiting}
-          sub="Assign manually"
+          label="Seat Pending"
+          value={metrics.seatPending}
+          sub="Customer choosing"
           tint="green"
         />
-
       </div>
 
-      {/* ====================================
-          ERROR MESSAGE
-      ==================================== */}
+      {/* ERROR */}
 
       {error && (
         <div
@@ -880,18 +476,14 @@ export const AdminOrdersPage = () => {
 
           <button
             type="button"
-            onClick={() =>
-              setError("")
-            }
+            onClick={() => setError("")}
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* ====================================
-          SUCCESS MESSAGE
-      ==================================== */}
+      {/* SUCCESS MESSAGE */}
 
       {notice && (
         <div
@@ -899,51 +491,35 @@ export const AdminOrdersPage = () => {
           role="status"
         >
           <CheckCircle2 size={16} />
-
           {notice}
         </div>
       )}
 
-      {/* ====================================
-          ALL CUSTOMER ORDERS
-      ==================================== */}
+      {/* ORDERS TABLE */}
 
       <section className="cf-panel">
-
         <div className="cf-panel-head">
-
           <div>
-            <h2>
-              All Customer Orders
-            </h2>
+            <h2>All Customer Orders</h2>
 
             <p>
-              Multiple customers can place
-              orders simultaneously. Assign
-              an available seat to each
-              paid order.
+              Admin verifies payment and confirms
+              the order after customer seat selection.
             </p>
           </div>
 
           <SearchField
             value={search}
             onChange={setSearch}
-            placeholder="Search order, customer or seat..."
+            placeholder="Search order, guest or seat..."
           />
-
         </div>
-
-        {/* STATUS FILTER */}
 
         <Tabs
           items={statuses}
           value={filter}
           onChange={setFilter}
         />
-
-        {/* =================================
-            ORDERS TABLE
-        ================================= */}
 
         <DataTable
           headers={[
@@ -958,754 +534,340 @@ export const AdminOrdersPage = () => {
           ]}
           loading={loading}
           empty={
-            !loading &&
-            filtered.length === 0
+            !loading && filtered.length === 0
               ? "No matching orders."
               : null
           }
         >
+          {filtered.map((order) => {
+            const expandedHere =
+              expanded === order._id;
 
-          {filtered.map(
-            (order) => {
-              const franchiseId =
-                getFranchiseId(
-                  order
-                );
+            const next = nextStatus[order.status];
 
-              const seats =
-                seatsByFranchise[
-                  franchiseId
-                ];
+            const seatSelected =
+              customerHasSeat(order);
 
-              const expandedHere =
-                expanded ===
-                order._id;
+            const canPay =
+              counterMethods.includes(
+                order.paymentMethod
+              ) &&
+              order.paymentStatus === "Pending" &&
+              !["Cancelled", "Picked Up"].includes(
+                order.status
+              );
 
-              const next =
-                nextStatus[
-                  order.status
-                ];
+            return (
+              <React.Fragment key={order._id}>
+                <tr>
+                  <td>
+                    <b>{orderId(order)}</b>
 
-              const canPay =
-                counterMethods.includes(
-                  order.paymentMethod
-                ) &&
-                order.paymentStatus ===
-                  "Pending" &&
-                ![
-                  "Cancelled",
-                  "Picked Up",
-                ].includes(
-                  order.status
-                );
+                    <small className="cf-cell-sub">
+                      {formatDate(order.createdAt)}
+                    </small>
+                  </td>
 
-              const canAssign =
-                order.paymentStatus ===
-                  "Paid" &&
-                order.seatNumber == null &&
-                ![
-                  "Cancelled",
-                  "Picked Up",
-                ].includes(
-                  order.status
-                );
+                  <td>
+                    {order.isGuestOrder
+                      ? "Walk-in Guest"
+                      : order.userId?.name ||
+                        "Customer"}
+                  </td>
 
-              const assigning =
-                busy ===
-                order._id;
+                  <td>
+                    {order.franchiseId?.name ||
+                      "Franchise"}
 
-              return (
-                <React.Fragment
-                  key={order._id}
-                >
+                    <small className="cf-cell-sub">
+                      {orderItemsText(order)}
+                    </small>
+                  </td>
 
-                  {/* =======================
-                      ORDER TABLE ROW
-                  ======================= */}
+                  <td>
+                    {portalMoney(order.total)}
+                  </td>
 
-                  <tr>
+                  <td>
+                    <Status
+                      status={order.paymentStatus}
+                    />
+                  </td>
 
-                    {/* ORDER NUMBER */}
+                  <td>
+                    <Status status={order.status} />
+                  </td>
 
-                    <td>
-                      <b>
-                        {orderId(
-                          order
-                        )}
-                      </b>
+                  {/* DISPLAY CUSTOMER SEAT ONLY */}
 
-                      <small className="cf-cell-sub">
-                        {formatDate(
-                          order.createdAt
-                        )}
-                      </small>
-                    </td>
-
-                    {/* CUSTOMER */}
-
-                    <td>
-                      {order.isGuestOrder
-                        ? "Walk-in Guest"
-                        : order.userId?.name ||
-                          "Customer"}
-                    </td>
-
-                    {/* FRANCHISE / ITEMS */}
-
-                    <td>
-                      {order.franchiseId?.name ||
-                        "Franchise"}
-
-                      <small className="cf-cell-sub">
-                        {orderItemsText(
-                          order
-                        )}
-                      </small>
-                    </td>
-
-                    {/* TOTAL */}
-
-                    <td>
-                      {portalMoney(
-                        order.total
-                      )}
-                    </td>
-
-                    {/* PAYMENT */}
-
-                    <td>
-                      <Status
-                        status={
-                          order.paymentStatus
-                        }
-                      />
-                    </td>
-
-                    {/* ORDER STATUS */}
-
-                    <td>
-                      <Status
-                        status={
-                          order.status
-                        }
-                      />
-                    </td>
-
-                    {/* SEAT NUMBER */}
-
-                    <td>
-                      {order.seatNumber != null ? (
-                        <b>
-                          <Armchair
-                            size={14}
-                            style={{
-                              verticalAlign:
-                                "middle",
-                            }}
-                          />{" "}
-                          {order.seatNumber}
-                        </b>
-                      ) : (
-                        <span
-                          style={{
-                            color:
-                              "#b45309",
-                          }}
-                        >
-                          Pending
-                        </span>
-                      )}
-                    </td>
-
-                    {/* DETAILS BUTTON */}
-
-                    <td>
-                      <button
-                        type="button"
-                        className="cf-outlined cf-expand"
-                        aria-expanded={
-                          expandedHere
-                        }
-                        onClick={() =>
-                          openOrder(
-                            order
-                          )
-                        }
+                  <td>
+                    {seatSelected ? (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          color: "#198754",
+                          fontWeight: 800,
+                        }}
                       >
-                        Details
+                        <Armchair size={16} />
+                        Seat {order.seatNumber}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          color: "#a36a20",
+                          fontSize: 12,
+                        }}
+                      >
+                        {order.paymentStatus === "Paid"
+                          ? "Customer selecting"
+                          : "Payment pending"}
+                      </span>
+                    )}
+                  </td>
 
-                        <ChevronDown
-                          size={14}
-                        />
-                      </button>
-                    </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="cf-outlined cf-expand"
+                      onClick={() => openOrder(order)}
+                      aria-expanded={expandedHere}
+                    >
+                      Details
+                      <ChevronDown size={14} />
+                    </button>
+                  </td>
+                </tr>
 
-                  </tr>
+                {/* EXPANDED DETAILS */}
 
-                  {/* =======================
-                      EXPANDED ORDER DETAILS
-                  ======================= */}
+                {expandedHere && (
+                  <tr className="cf-expanded-row">
+                    <td colSpan={8}>
+                      <div className="cf-order-details">
+                        <div>
+                          <h3>
+                            {orderId(order)}
+                            {" · "}
+                            Customer & Payment
+                          </h3>
 
-                  {expandedHere && (
-                    <tr className="cf-expanded-row">
+                          <p>
+                            <strong>Customer:</strong>{" "}
+                            {order.isGuestOrder
+                              ? "Walk-in Guest"
+                              : order.userId?.name ||
+                                "Customer"}
+                          </p>
 
-                      <td colSpan={8}>
+                          <p>
+                            <strong>Tracking:</strong>{" "}
+                            {order.trackingCode || "—"}
+                          </p>
 
-                        <div className="cf-order-details">
+                          <p>
+                            <strong>Payment Method:</strong>{" "}
+                            {order.paymentMethod}
+                          </p>
 
-                          {/* =================
-                              ORDER INFO
-                          ================= */}
+                          <p>
+                            <strong>Payment Status:</strong>{" "}
+                            {order.paymentStatus}
+                          </p>
 
-                          <div>
+                          <p>
+                            <strong>Order Status:</strong>{" "}
+                            {order.status}
+                          </p>
 
-                            <h3>
-                              {orderId(
-                                order
-                              )}{" "}
-                              · Customer & Payment
-                            </h3>
+                          <p>
+                            <strong>Customer Seat:</strong>{" "}
+                            {seatSelected
+                              ? `Seat ${order.seatNumber}`
+                              : "Waiting for customer selection"}
+                          </p>
 
-                            <p>
-                              <strong>
-                                Customer:
-                              </strong>{" "}
-                              {order.isGuestOrder
-                                ? "Walk-in Guest"
-                                : order.userId?.name ||
-                                  "Customer"}
-                            </p>
-
-                            <p>
-                              <strong>
-                                Tracking:
-                              </strong>{" "}
-                              {order.trackingCode ||
-                                "—"}
-                            </p>
-
-                            <p>
-                              <strong>
-                                Method:
-                              </strong>{" "}
-                              {order.paymentMethod}
-                            </p>
-
-                            <p>
-                              <strong>
-                                Payment:
-                              </strong>{" "}
-                              {order.paymentStatus}
-                            </p>
-
-                            <p>
-                              <strong>
-                                Order:
-                              </strong>{" "}
-                              {order.status}
-                            </p>
-
-                            <p>
-                              <strong>
-                                Seat:
-                              </strong>{" "}
-                              {order.seatNumber != null
-                                ? `Seat ${order.seatNumber}`
-                                : "Not assigned"}
-                            </p>
-
-                            <p>
-                              <strong>
-                                ETA:
-                              </strong>{" "}
-                              {formatDate(
-                                order.estimatedReadyTime
-                              )}
-                            </p>
-
-                            <p>
-                              <strong>
-                                Items:
-                              </strong>{" "}
-                              {orderItemsText(
-                                order
-                              )}
-                            </p>
-
-                            {order.notes && (
-                              <p>
-                                <strong>
-                                  Notes:
-                                </strong>{" "}
-                                {order.notes}
-                              </p>
+                          <p>
+                            <strong>ETA:</strong>{" "}
+                            {formatDate(
+                              order.estimatedReadyTime
                             )}
+                          </p>
 
-                          </div>
+                          <p>
+                            <strong>Items:</strong>{" "}
+                            {orderItemsText(order)}
+                          </p>
 
-                          {/* =================
-                              ADMIN ACTIONS
-                          ================= */}
-
-                          <div className="cf-order-actions">
-
-                            {/* =================
-                                COUNTER PAYMENT
-                            ================= */}
-
-                            {canPay && (
-                              <>
-
-                                {order.paymentMethod ===
-                                  "Counter UPI" && (
-                                  <input
-                                    type="text"
-                                    className="cf-upi-input"
-                                    maxLength={120}
-                                    placeholder="UPI reference"
-                                    aria-label="UPI reference"
-                                    value={
-                                      refs[
-                                        order._id
-                                      ] || ""
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      setRefs(
-                                        (previous) => ({
-                                          ...previous,
-
-                                          [order._id]:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                  />
-                                )}
-
-                                <button
-                                  className="cf-primary"
-                                  type="button"
-                                  disabled={
-                                    Boolean(
-                                      busy
-                                    )
-                                  }
-                                  onClick={() =>
-                                    confirmCounterPayment(
-                                      order
-                                    )
-                                  }
-                                >
-                                  <Wallet
-                                    size={16}
-                                  />
-
-                                  {assigning
-                                    ? "Processing..."
-                                    : "Confirm Counter Payment"}
-                                </button>
-
-                              </>
-                            )}
-
-                            {/* =================
-                                CUSTOM SEAT
-                            ================= */}
-
-                            {canAssign && (
-                              <div
-                                style={{
-                                  display:
-                                    "grid",
-
-                                  gap: 10,
-
-                                  width:
-                                    "100%",
-
-                                  padding:
-                                    14,
-
-                                  border:
-                                    "1px solid #f1d8c0",
-
-                                  borderRadius:
-                                    12,
-
-                                  background:
-                                    "#fffaf5",
-                                }}
-                              >
-
-                                <label
-                                  htmlFor={`seat-${order._id}`}
-                                  style={{
-                                    fontWeight:
-                                      700,
-                                  }}
-                                >
-                                  Choose Custom Seat
-                                </label>
-
-                                {/* AVAILABLE SEATS */}
-
-                                <select
-                                  id={`seat-${order._id}`}
-                                  value={
-                                    selectedSeats[
-                                      order._id
-                                    ] || ""
-                                  }
-                                  onChange={(
-                                    event
-                                  ) =>
-                                    setSelectedSeats(
-                                      (previous) => ({
-                                        ...previous,
-
-                                        [order._id]:
-                                          event.target.value,
-                                      })
-                                    )
-                                  }
-                                  disabled={
-                                    Boolean(
-                                      busy
-                                    ) ||
-                                    Boolean(
-                                      seatsLoading[
-                                        franchiseId
-                                      ]
-                                    )
-                                  }
-                                  style={{
-                                    width:
-                                      "100%",
-
-                                    padding:
-                                      "11px 12px",
-
-                                    border:
-                                      "1px solid #ead8c8",
-
-                                    borderRadius:
-                                      8,
-
-                                    background:
-                                      "#ffffff",
-                                  }}
-                                >
-
-                                  <option value="">
-                                    Select available seat
-                                  </option>
-
-                                  {(
-                                    seats?.available ||
-                                    []
-                                  ).map(
-                                    (number) => (
-                                      <option
-                                        key={
-                                          number
-                                        }
-                                        value={
-                                          number
-                                        }
-                                      >
-                                        Seat{" "}
-                                        {number}
-                                      </option>
-                                    )
-                                  )}
-
-                                </select>
-
-                                {/* AVAILABILITY INFO */}
-
-                                <small
-                                  style={{
-                                    color:
-                                      "#786658",
-                                  }}
-                                >
-                                  Occupied:{" "}
-                                  {seats?.occupied
-                                    ?.length ||
-                                    0}{" "}
-                                  /{" "}
-                                  {seats?.capacity ||
-                                    "—"}
-
-                                  {" | "}
-
-                                  Available:{" "}
-                                  {seats?.available
-                                    ?.length ??
-                                    "—"}
-                                </small>
-
-                                {/* ASSIGN SEAT */}
-
-                                <button
-                                  className="cf-primary"
-                                  type="button"
-                                  disabled={
-                                    Boolean(
-                                      busy
-                                    ) ||
-                                    !selectedSeats[
-                                      order._id
-                                    ] ||
-                                    Boolean(
-                                      seatsLoading[
-                                        franchiseId
-                                      ]
-                                    )
-                                  }
-                                  onClick={() =>
-                                    assignCustomSeat(
-                                      order
-                                    )
-                                  }
-                                >
-                                  <Armchair
-                                    size={16}
-                                  />
-
-                                  {assigning
-                                    ? "Assigning..."
-                                    : "Assign Seat to Customer"}
-                                </button>
-
-                                {/* REFRESH AVAILABLE SEATS */}
-
-                                <button
-                                  className="cf-outlined"
-                                  type="button"
-                                  disabled={
-                                    Boolean(
-                                      busy
-                                    )
-                                  }
-                                  onClick={() =>
-                                    getSeats(
-                                      franchiseId
-                                    )
-                                  }
-                                >
-                                  <RefreshCw
-                                    size={14}
-                                  />
-
-                                  Refresh Available Seats
-                                </button>
-
-                              </div>
-                            )}
-
-                            {/* =================
-                                ASSIGNED SEAT
-                            ================= */}
-
-                            {order.seatNumber != null && (
-                              <p
-                                style={{
-                                  color:
-                                    "#15803d",
-
-                                  fontWeight:
-                                    700,
-                                }}
-                              >
-                                <CheckCircle2
-                                  size={16}
-                                  style={{
-                                    verticalAlign:
-                                      "middle",
-                                  }}
-                                />{" "}
-                                Seat{" "}
-                                {order.seatNumber}{" "}
-                                assigned by Admin
-                              </p>
-                            )}
-
-                            {/* =================
-                                NEXT ORDER STATUS
-                            ================= */}
-
-                            {next && (
-                              <>
-
-                                {/* ETA INPUT */}
-
-                                {[
-                                  "Pending",
-                                  "Confirmed",
-                                ].includes(
-                                  order.status
-                                ) && (
-                                  <label className="cf-eta-label">
-
-                                    ETA (minutes)
-
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      max={180}
-                                      value={
-                                        eta[
-                                          order._id
-                                        ] ??
-                                        order.readyInMinutes ??
-                                        15
-                                      }
-                                      onChange={(
-                                        event
-                                      ) =>
-                                        setEta(
-                                          (previous) => ({
-                                            ...previous,
-
-                                            [order._id]:
-                                              event.target.value,
-                                          })
-                                        )
-                                      }
-                                    />
-
-                                  </label>
-                                )}
-
-                                {/* STATUS BUTTON */}
-
-                                <button
-                                  className="cf-primary"
-                                  type="button"
-                                  disabled={
-                                    Boolean(
-                                      busy
-                                    ) ||
-                                    order.paymentStatus !==
-                                      "Paid" ||
-                                    (
-                                      next ===
-                                        "Confirmed" &&
-                                      order.seatNumber ==
-                                        null
-                                    )
-                                  }
-                                  onClick={() =>
-                                    updateStatus(
-                                      order,
-                                      next
-                                    )
-                                  }
-                                >
-                                  <CheckCircle2
-                                    size={16}
-                                  />
-
-                                  {nextLabel[
-                                    next
-                                  ]}
-                                </button>
-
-                              </>
-                            )}
-
-                            {/* =================
-                                CANCEL UNPAID
-                            ================= */}
-
-                            {[
-                              "Pending",
-                              "Confirmed",
-                            ].includes(
-                              order.status
-                            ) &&
-                              order.paymentStatus !==
-                                "Paid" && (
-                                <button
-                                  type="button"
-                                  className="cf-outlined"
-                                  disabled={
-                                    Boolean(
-                                      busy
-                                    )
-                                  }
-                                  onClick={() =>
-                                    updateStatus(
-                                      order,
-                                      "Cancelled"
-                                    )
-                                  }
-                                >
-                                  <Trash2
-                                    size={15}
-                                  />
-
-                                  Cancel Unpaid Order
-                                </button>
-                              )}
-
-                            {/* =================
-                                WAITING FOR SEAT
-                            ================= */}
-
-                            {order.paymentStatus ===
-                              "Paid" &&
-                              order.seatNumber ==
-                                null &&
-                              ![
-                                "Picked Up",
-                                "Cancelled",
-                              ].includes(
-                                order.status
-                              ) && (
-                                <p
-                                  style={{
-                                    color:
-                                      "#b45309",
-                                  }}
-                                >
-                                  <CreditCard
-                                    size={14}
-                                    style={{
-                                      verticalAlign:
-                                        "middle",
-                                    }}
-                                  />{" "}
-                                  Payment received.
-                                  Admin must select
-                                  a seat manually.
-                                </p>
-                              )}
-
-                          </div>
-
+                          {order.notes && (
+                            <p>
+                              <strong>Notes:</strong>{" "}
+                              {order.notes}
+                            </p>
+                          )}
                         </div>
 
-                      </td>
+                        {/* ACTIONS */}
 
-                    </tr>
-                  )}
+                        <div className="cf-order-actions">
+                          {/* COUNTER PAYMENT */}
 
-                </React.Fragment>
-              );
-            }
-          )}
+                          {canPay && (
+                            <>
+                              {order.paymentMethod ===
+                                "Counter UPI" && (
+                                <input
+                                  type="text"
+                                  className="cf-upi-input"
+                                  maxLength={120}
+                                  placeholder="UPI transaction reference"
+                                  aria-label="UPI transaction reference"
+                                  value={
+                                    refs[order._id] || ""
+                                  }
+                                  onChange={(event) =>
+                                    setRefs((prev) => ({
+                                      ...prev,
+                                      [order._id]:
+                                        event.target.value,
+                                    }))
+                                  }
+                                />
+                              )}
 
+                              <button
+                                type="button"
+                                className="cf-primary"
+                                disabled={Boolean(busy)}
+                                onClick={() =>
+                                  confirmCounterPayment(order)
+                                }
+                              >
+                                <Wallet size={16} />
+                                Confirm Counter Payment
+                              </button>
+                            </>
+                          )}
+
+                          {/* NO ASSIGN SEAT BUTTON */}
+
+                          {seatSelected ? (
+                            <p
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 7,
+                                color: "#198754",
+                                fontWeight: 700,
+                              }}
+                            >
+                              <CheckCircle2 size={17} />
+                              Seat {order.seatNumber}
+                              {" "}selected by customer
+                            </p>
+                          ) : (
+                            order.paymentStatus === "Paid" &&
+                            order.status === "Pending" && (
+                              <p
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 7,
+                                  color: "#a36a20",
+                                }}
+                              >
+                                <CreditCard size={16} />
+                                Payment received. Waiting for
+                                customer to confirm a seat.
+                              </p>
+                            )
+                          )}
+
+                          {/* ETA */}
+
+                          {next &&
+                            ["Pending", "Confirmed"].includes(
+                              order.status
+                            ) && (
+                              <label className="cf-eta-label">
+                                ETA (minutes)
+
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={180}
+                                  value={
+                                    eta[order._id] ??
+                                    order.readyInMinutes ??
+                                    15
+                                  }
+                                  onChange={(event) =>
+                                    setEta((prev) => ({
+                                      ...prev,
+                                      [order._id]:
+                                        event.target.value,
+                                    }))
+                                  }
+                                />
+                              </label>
+                            )}
+
+                          {/* ORDER ACTION */}
+
+                          {next && (
+                            <button
+                              type="button"
+                              className="cf-primary"
+                              disabled={
+                                Boolean(busy) ||
+                                order.paymentStatus !== "Paid" ||
+                                (
+                                  next === "Confirmed" &&
+                                  !seatSelected
+                                )
+                              }
+                              onClick={() =>
+                                updateStatus(order, next)
+                              }
+                            >
+                              <CheckCircle2 size={16} />
+                              {nextLabel[next]}
+                            </button>
+                          )}
+
+                          {/* CANCEL UNPAID ORDER */}
+
+                          {order.status === "Pending" &&
+                            order.paymentStatus !== "Paid" && (
+                              <button
+                                type="button"
+                                className="cf-outlined"
+                                disabled={Boolean(busy)}
+                                onClick={() =>
+                                  updateStatus(
+                                    order,
+                                    "Cancelled"
+                                  )
+                                }
+                              >
+                                <Trash2 size={15} />
+                                Cancel Unpaid Order
+                              </button>
+                            )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
         </DataTable>
-
       </section>
-
     </div>
   );
 };
 
-
-
+export default AdminOrdersPage;

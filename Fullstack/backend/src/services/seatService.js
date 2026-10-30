@@ -8,43 +8,42 @@ const Order = require("../models/Order");
 // SEAT RESERVATION SCHEMA
 // ============================================
 
-const reservationSchema = new mongoose.Schema(
-  {
-    franchiseId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Franchise",
-      required: true,
-    },
+const reservationSchema =
+  new mongoose.Schema(
+    {
+      franchiseId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Franchise",
+        required: true,
+      },
 
-    orderId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Order",
-      required: true,
-    },
+      orderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Order",
+        required: true,
+      },
 
-    seatNumber: {
-      type: Number,
-      required: true,
-      min: 1,
-    },
+      seatNumber: {
+        type: Number,
+        required: true,
+        min: 1,
+      },
 
-    active: {
-      type: Boolean,
-      default: true,
+      active: {
+        type: Boolean,
+        default: true,
+      },
     },
-  },
-  {
-    timestamps: true,
-  }
-);
+    {
+      timestamps: true,
+    }
+  );
 
 // ============================================
-// PREVENT DUPLICATE SEAT BOOKING
+// PREVENT DOUBLE BOOKING
 // ============================================
 
-// Only one active order can occupy a seat
-// within the same franchise.
-
+// Only one active reservation per seat.
 reservationSchema.index(
   {
     franchiseId: 1,
@@ -52,29 +51,26 @@ reservationSchema.index(
   },
   {
     unique: true,
+
     partialFilterExpression: {
       active: true,
     },
   }
 );
 
-// One order cannot reserve multiple active seats.
-
+// One active seat per order.
 reservationSchema.index(
   {
     orderId: 1,
   },
   {
     unique: true,
+
     partialFilterExpression: {
       active: true,
     },
   }
 );
-
-// ============================================
-// SEAT RESERVATION MODEL
-// ============================================
 
 const SeatReservation =
   mongoose.models.SeatReservation ||
@@ -84,7 +80,7 @@ const SeatReservation =
   );
 
 // ============================================
-// TOTAL SEATS PER FRANCHISE
+// SEAT CAPACITY
 // ============================================
 
 function seatCapacity() {
@@ -92,18 +88,25 @@ function seatCapacity() {
     process.env.SEATS_PER_FRANCHISE || 20
   );
 
-  return Number.isInteger(value) &&
+  if (
+    Number.isInteger(value) &&
     value >= 1 &&
     value <= 500
-    ? value
-    : 20;
+  ) {
+    return value;
+  }
+
+  return 20;
 }
 
 // ============================================
-// CUSTOM ERROR HELPER
+// ERROR HELPER
 // ============================================
 
-function seatError(message, status = 409) {
+function seatError(
+  message,
+  status = 409
+) {
   const error = new Error(message);
 
   error.status = status;
@@ -112,11 +115,15 @@ function seatError(message, status = 409) {
 }
 
 // ============================================
-// GET AVAILABLE AND OCCUPIED SEATS
+// GET AVAILABLE SEATS
 // ============================================
 
 async function listSeats(franchiseId) {
-  if (!mongoose.isValidObjectId(franchiseId)) {
+  if (
+    !mongoose.isValidObjectId(
+      franchiseId
+    )
+  ) {
     throw seatError(
       "Invalid franchise ID.",
       400
@@ -125,27 +132,32 @@ async function listSeats(franchiseId) {
 
   const capacity = seatCapacity();
 
-  // Find all active seat reservations
   const reservations =
     await SeatReservation.find({
       franchiseId,
       active: true,
     })
-      .select("seatNumber orderId -_id")
+      .select(
+        "seatNumber orderId -_id"
+      )
       .lean();
 
   const occupied = reservations.map(
     (item) => item.seatNumber
   );
 
-  // Available seat numbers
+  const occupiedSet = new Set(
+    occupied
+  );
+
   const available = Array.from(
     {
       length: capacity,
     },
     (_, index) => index + 1
   ).filter(
-    (number) => !occupied.includes(number)
+    (number) =>
+      !occupiedSet.has(number)
   );
 
   return {
@@ -156,27 +168,20 @@ async function listSeats(franchiseId) {
 }
 
 // ============================================
-// ADMIN — MANUALLY ASSIGN SEAT
+// CUSTOMER SELECTS SEAT
 // ============================================
 
-// IMPORTANT:
-// Only call this function from an authenticated
-// and Admin-authorized backend route.
-//
-// Do NOT call automatically from:
-// - Customer kiosk
-// - Razorpay payment verification
-// - Razorpay webhook
-
-async function assignSeatByAdmin(
+async function assignSeatByCustomer(
   orderId,
   selectedSeat
 ) {
-  const seatNumber = Number(selectedSeat);
+  const seatNumber = Number(
+    selectedSeat
+  );
 
-  // ========================================
-  // VALIDATE SELECTED SEAT NUMBER
-  // ========================================
+  // ==========================================
+  // VALIDATE SEAT NUMBER
+  // ==========================================
 
   if (
     !Number.isInteger(seatNumber) ||
@@ -189,19 +194,17 @@ async function assignSeatByAdmin(
     );
   }
 
-  if (!mongoose.isValidObjectId(orderId)) {
+  if (
+    !mongoose.isValidObjectId(orderId)
+  ) {
     throw seatError(
       "Invalid order ID.",
       400
     );
   }
 
-  // Ensure MongoDB unique indexes are ready
+  // Ensure unique indexes are ready.
   await SeatReservation.init();
-
-  // ========================================
-  // FIND CUSTOMER ORDER
-  // ========================================
 
   const order = await Order.findById(
     orderId
@@ -214,36 +217,42 @@ async function assignSeatByAdmin(
     );
   }
 
-  // ========================================
-  // PAYMENT MUST BE VERIFIED FIRST
-  // ========================================
+  // ==========================================
+  // CHECK PAYMENT
+  // ==========================================
 
-  if (order.paymentStatus !== "Paid") {
+  if (
+    order.paymentStatus !== "Paid"
+  ) {
     throw seatError(
-      "Payment must be verified before assigning a seat."
+      "Payment must be verified before choosing a seat."
     );
   }
 
-  // ========================================
+  // ==========================================
   // CHECK ORDER STATUS
-  // ========================================
+  // ==========================================
 
   if (
-    ["Picked Up", "Cancelled"].includes(
-      order.status
-    )
+    [
+      "Picked Up",
+      "Cancelled",
+    ].includes(order.status)
   ) {
     throw seatError(
       "Cannot assign a seat to a completed or cancelled order."
     );
   }
 
-  // ========================================
-  // CHECK EXISTING SEAT NUMBER
-  // ========================================
+  // ==========================================
+  // ORDER ALREADY HAS A SEAT
+  // ==========================================
 
   if (order.seatNumber != null) {
-    if (order.seatNumber === seatNumber) {
+    if (
+      Number(order.seatNumber) ===
+      seatNumber
+    ) {
       return order;
     }
 
@@ -252,9 +261,9 @@ async function assignSeatByAdmin(
     );
   }
 
-  // ========================================
-  // CHECK EXISTING ACTIVE RESERVATION
-  // ========================================
+  // ==========================================
+  // CHECK EXISTING RESERVATION
+  // ==========================================
 
   const existing =
     await SeatReservation.findOne({
@@ -263,13 +272,18 @@ async function assignSeatByAdmin(
     });
 
   if (existing) {
-    if (existing.seatNumber !== seatNumber) {
+    if (
+      existing.seatNumber !==
+      seatNumber
+    ) {
       throw seatError(
         `This order already reserves seat ${existing.seatNumber}.`
       );
     }
 
-    // Recover an interrupted update
+    // Recover a reservation if the
+    // reservation record was saved
+    // but the Order document wasn't.
     const recovered =
       await Order.findOneAndUpdate(
         {
@@ -301,11 +315,15 @@ async function assignSeatByAdmin(
       return recovered;
     }
 
-    const latest = await Order.findById(
-      orderId
-    );
+    const latest =
+      await Order.findById(
+        orderId
+      );
 
-    if (latest?.seatNumber === seatNumber) {
+    if (
+      latest?.seatNumber ===
+      seatNumber
+    ) {
       return latest;
     }
 
@@ -314,16 +332,17 @@ async function assignSeatByAdmin(
     );
   }
 
-  // ========================================
-  // CREATE MANUAL SEAT RESERVATION
-  // ========================================
+  // ==========================================
+  // CREATE RESERVATION
+  // ==========================================
 
   let reservation;
 
   try {
     reservation =
       await SeatReservation.create({
-        franchiseId: order.franchiseId,
+        franchiseId:
+          order.franchiseId,
 
         orderId: order._id,
 
@@ -332,13 +351,16 @@ async function assignSeatByAdmin(
         active: true,
       });
   } catch (error) {
-    // Duplicate active reservation
+    // MongoDB unique index prevents
+    // two customers from taking same seat.
     if (error.code !== 11000) {
       throw error;
     }
 
     const alreadyAssigned =
-      await Order.findById(orderId);
+      await Order.findById(
+        orderId
+      );
 
     if (
       alreadyAssigned?.seatNumber ===
@@ -352,9 +374,9 @@ async function assignSeatByAdmin(
     );
   }
 
-  // ========================================
-  // SAVE SEAT NUMBER IN ORDER
-  // ========================================
+  // ==========================================
+  // SAVE SELECTED SEAT IN ORDER
+  // ==========================================
 
   try {
     const assigned =
@@ -388,7 +410,8 @@ async function assignSeatByAdmin(
       return assigned;
     }
 
-    // Order changed after reservation
+    // Order changed during seat booking.
+    // Release reservation.
     await SeatReservation.updateOne(
       {
         _id: reservation._id,
@@ -404,7 +427,8 @@ async function assignSeatByAdmin(
       "Order changed. Refresh and retry."
     );
   } catch (error) {
-    // Release reservation created by this attempt
+    // Roll back only this attempt's
+    // reservation, never another order's.
     await SeatReservation.updateOne(
       {
         _id: reservation._id,
@@ -414,19 +438,21 @@ async function assignSeatByAdmin(
           active: false,
         },
       }
-    ).catch((rollbackError) => {
-      console.error(
-        "Seat rollback failed:",
-        rollbackError
-      );
-    });
+    ).catch(
+      (rollbackError) => {
+        console.error(
+          "Seat rollback failed:",
+          rollbackError
+        );
+      }
+    );
 
     throw error;
   }
 }
 
 // ============================================
-// RELEASE SEAT AFTER ORDER COMPLETION
+// RELEASE SEAT
 // ============================================
 
 async function releaseSeat(orderId) {
@@ -444,17 +470,13 @@ async function releaseSeat(orderId) {
 }
 
 // ============================================
-// EXPORT SERVICE FUNCTIONS
+// EXPORTS
 // ============================================
 
 module.exports = {
   SeatReservation,
-
   seatCapacity,
-
   listSeats,
-
-  assignSeatByAdmin,
-
+  assignSeatByCustomer,
   releaseSeat,
 };

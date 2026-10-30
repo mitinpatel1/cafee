@@ -3,23 +3,20 @@
 
 const express = require("express");
 const crypto = require("crypto");
-const mongoose = require("mongoose");
 
 const Order = require("../models/Order");
 const Payment = require("../models/Payment");
 const Franchise = require("../models/Franchise");
 const MenuItem = require("../models/MenuItem");
 
+const {
+  listSeats,
+  assignSeatByCustomer,
+} = require("../services/seatService");
+
 const router = express.Router();
 
-// ============================================
-// PUBLIC KIOSK CONFIGURATION
-// ============================================
-
-// Customer login / signup required nahi.
-// Seat sirf Admin dashboard se assign hogi.
-
-router.use((req, res, next) => {
+router.use((_req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
 });
@@ -28,7 +25,7 @@ router.use((req, res, next) => {
 // HELPERS
 // ============================================
 
-const onlineEnabled = () =>
+const configured = () =>
   Boolean(
     process.env.RAZORPAY_KEY_ID &&
     process.env.RAZORPAY_KEY_SECRET
@@ -40,17 +37,20 @@ const hash = (value) =>
     .update(value)
     .digest("hex");
 
-const roundAmount = (value) =>
-  Math.round(Number(value) * 100) / 100;
+const money = (amount) =>
+  Math.round(Number(amount) * 100) / 100;
 
-const toPaise = (value) =>
-  Math.round(Number(value) * 100);
+const paise = (rupees) =>
+  Math.round(Number(rupees) * 100);
 
-// ============================================
-// SECURE SIGNATURE COMPARISON
-// ============================================
+function fail(res, status, message) {
+  return res.status(status).json({
+    success: false,
+    message,
+  });
+}
 
-function secureEqual(expected, received) {
+function matchingSignature(expected, received) {
   return (
     typeof received === "string" &&
     /^[0-9a-f]{64}$/i.test(received) &&
@@ -61,44 +61,62 @@ function secureEqual(expected, received) {
   );
 }
 
-// ============================================
-// BASIC REQUEST RATE LIMITING
-// ============================================
+function publicOrder(order) {
+  return {
+    orderNumber: order.orderNumber,
+    trackingCode: order.trackingCode,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    seatNumber: order.seatNumber || null,
 
-// Allows multiple customers on shared kiosks.
-// For production use Redis-based limiting.
+    seatPending:
+      order.paymentStatus === "Paid" &&
+      !order.seatNumber &&
+      !["Cancelled", "Picked Up"].includes(
+        order.status
+      ),
+
+    pickupTime: order.pickupTime,
+    estimatedReadyTime:
+      order.estimatedReadyTime,
+  };
+}
+
+// ============================================
+// BASIC REQUEST LIMITING
+// ============================================
 
 const requestWindows = new Map();
 
-function throttle(group, limit, periodMs) {
+function throttle(limit, periodMs) {
   return (req, res, next) => {
+    const key = `${req.ip}:${
+      req.path.startsWith("/orders")
+        ? "order"
+        : "tracking"
+    }`;
+
     const now = Date.now();
-    const key = `${req.ip}:${group}`;
-    const previous = requestWindows.get(key);
+    const old = requestWindows.get(key);
 
-    const current =
-      !previous ||
-      now - previous.start >= periodMs
-        ? { start: now, count: 0 }
-        : previous;
+    const record =
+      !old || now - old.start > periodMs
+        ? {
+            start: now,
+            count: 0,
+          }
+        : old;
 
-    current.count += 1;
-    requestWindows.set(key, current);
+    record.count++;
 
-    if (requestWindows.size > 10000) {
-      for (const [entryKey, entry] of requestWindows) {
-        if (now - entry.start >= periodMs) {
-          requestWindows.delete(entryKey);
-        }
-      }
-    }
+    requestWindows.set(key, record);
 
-    if (current.count > limit) {
-      return res.status(429).json({
-        success: false,
-        message:
-          "Too many requests. Please try again shortly.",
-      });
+    if (record.count > limit) {
+      return fail(
+        res,
+        429,
+        "Too many requests. Please try shortly."
+      );
     }
 
     next();
@@ -106,109 +124,61 @@ function throttle(group, limit, periodMs) {
 }
 
 // ============================================
-// PUBLIC ORDER RESPONSE
+// SOCKET NOTIFICATIONS
 // ============================================
 
-// Never expose guestTokenHash or private key.
-
-function publicOrder(order) {
-  return {
-    orderNumber: order.orderNumber,
-
-    trackingCode: order.trackingCode,
-
-    status: order.status,
-
-    paymentStatus: order.paymentStatus,
-
-    seatNumber: order.seatNumber ?? null,
-
-    seatPending:
-      order.paymentStatus === "Paid" &&
-      order.seatNumber == null &&
-      !["Cancelled", "Picked Up"].includes(
-        order.status
-      ),
-
-    pickupTime: order.pickupTime,
-
-    estimatedReadyTime:
-      order.estimatedReadyTime,
-  };
-}
-
-// ============================================
-// SOCKET.IO NOTIFICATIONS
-// ============================================
-
-function notifyOrder(req, order) {
+function notify(req, order) {
   const io = req.app.get("io");
 
   if (!io || !order) return;
 
   const payload = {
     orderId: order._id,
-
-    orderNumber: order.orderNumber,
-
     status: order.status,
-
     paymentStatus: order.paymentStatus,
-
-    seatNumber: order.seatNumber ?? null,
-
+    seatNumber: order.seatNumber,
     order,
   };
 
-  // Admin / Kitchen
   io.to("kitchen").emit(
     "order_status_updated",
     payload
   );
 
-  // Individual order tracking
   io.to(`order_${order._id}`).emit(
     "order_tracking_update",
     payload
   );
 
-  // Franchise dashboard
   io.to(
     `franchise_${order.franchiseId}`
   ).emit(
     "franchise_order_updated",
     order
   );
-
-  if (order.paymentStatus === "Paid") {
-    io.to("kitchen").emit(
-      "payment_confirmed",
-      payload
-    );
-  }
 }
 
 // ============================================
-// RAZORPAY REQUEST HELPER
+// RAZORPAY REQUEST
 // ============================================
 
-async function razorpayRequest(
-  endpoint,
+async function razorpay(
+  path,
   method = "GET",
   body
 ) {
-  const authorization = Buffer.from(
+  const credentials = Buffer.from(
     `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`
   ).toString("base64");
 
   const response = await fetch(
-    `https://api.razorpay.com/v1/${endpoint}`,
+    `https://api.razorpay.com/v1/${path}`,
     {
       method,
 
       headers: {
         Authorization:
-          `Basic ${authorization}`,
+          `Basic ${credentials}`,
 
         "Content-Type":
           "application/json",
@@ -228,7 +198,7 @@ async function razorpayRequest(
 
   if (!response.ok) {
     throw new Error(
-      data?.error?.description ||
+      data.error?.description ||
         "Razorpay request failed."
     );
   }
@@ -237,56 +207,46 @@ async function razorpayRequest(
 }
 
 // ============================================
-// GUEST ORDER SECURITY
+// GUEST ORDER AUTHORIZATION
 // ============================================
 
-// Each customer/order has a unique private key.
-// No JWT required for the kiosk.
-
-async function verifyGuestOrder(
+async function ownedGuestOrder(
   req,
   res,
   next
 ) {
   try {
-    const key =
+    const token =
       req.get("x-kiosk-order-key") || "";
 
-    if (!/^[a-f0-9]{64}$/i.test(key)) {
-      return res.status(403).json({
-        success: false,
-        message: "Invalid guest order key.",
-      });
-    }
-
-    if (
-      !mongoose.isValidObjectId(
-        req.params.id
-      )
-    ) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found.",
-      });
+    if (!/^[a-f0-9]{64}$/i.test(token)) {
+      return fail(
+        res,
+        403,
+        "Invalid order key."
+      );
     }
 
     const order = await Order.findById(
       req.params.id
-    ).select("+guestTokenHash");
+    )
+      .select("+guestTokenHash")
+      .catch(() => null);
 
     if (
       !order ||
       !order.isGuestOrder ||
       !order.guestTokenHash ||
-      !secureEqual(
+      !matchingSignature(
         order.guestTokenHash,
-        hash(key)
+        hash(token)
       )
     ) {
-      return res.status(404).json({
-        success: false,
-        message: "Guest order not found.",
-      });
+      return fail(
+        res,
+        404,
+        "Order not found."
+      );
     }
 
     req.guestOrder = order;
@@ -297,32 +257,13 @@ async function verifyGuestOrder(
 }
 
 // ============================================
-// GET KIOSK CONFIGURATION
-// ============================================
-
-router.get("/config", (req, res) => {
-  return res.json({
-    success: true,
-
-    onlineEnabled: onlineEnabled(),
-
-    manualSeatAssignment: true,
-
-    customerLoginRequired: false,
-  });
-});
-
-// ============================================
-// CREATE MULTIPLE GUEST ORDERS
+// CREATE GUEST ORDER
+// NO LOGIN REQUIRED
 // ============================================
 
 router.post(
   "/orders",
-  throttle(
-    "create",
-    120,
-    5 * 60 * 1000
-  ),
+  throttle(120, 5 * 60 * 1000),
   async (req, res) => {
     try {
       const {
@@ -332,10 +273,6 @@ router.post(
         notes,
       } = req.body || {};
 
-      // ======================================
-      // VALIDATE PAYMENT METHOD
-      // ======================================
-
       const methods = [
         "Online (Razorpay)",
         "Counter Cash",
@@ -343,94 +280,72 @@ router.post(
       ];
 
       if (!methods.includes(paymentMethod)) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Choose a payment method.",
-        });
+        return fail(
+          res,
+          400,
+          "Choose a valid payment method."
+        );
       }
 
       if (
-        paymentMethod === "Online (Razorpay)" &&
-        !onlineEnabled()
+        paymentMethod ===
+          "Online (Razorpay)" &&
+        !configured()
       ) {
-        return res.status(503).json({
-          success: false,
-          message:
-            "Online payment is not configured.",
-        });
-      }
-
-      // ======================================
-      // VALIDATE FRANCHISE
-      // ======================================
-
-      if (
-        !mongoose.isValidObjectId(
-          franchiseId
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid franchise.",
-        });
+        return fail(
+          res,
+          503,
+          "Online payment is not configured."
+        );
       }
 
       const franchise =
         await Franchise.findOne({
           _id: franchiseId,
           status: "Active",
-        });
+        }).catch(() => null);
 
       if (!franchise) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Select an active franchise.",
-        });
+        return fail(
+          res,
+          400,
+          "Select an active franchise."
+        );
       }
-
-      // ======================================
-      // VALIDATE ITEMS
-      // ======================================
 
       if (
         !Array.isArray(items) ||
-        items.length === 0 ||
+        items.length < 1 ||
         items.length > 30
       ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Cart must contain between 1 and 30 items.",
-        });
+        return fail(
+          res,
+          400,
+          "Cart must contain 1–30 items."
+        );
       }
 
       let subtotal = 0;
       const orderItems = [];
 
-      for (const cartItem of items) {
+      for (const item of items) {
         if (
-          !cartItem ||
-          !mongoose.isValidObjectId(
-            cartItem.menuItemId
-          ) ||
-          !Number.isInteger(
-            cartItem.quantity
-          ) ||
-          cartItem.quantity < 1 ||
-          cartItem.quantity > 50
+          !item ||
+          !Number.isInteger(item.quantity) ||
+          item.quantity < 1 ||
+          item.quantity > 50
         ) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid cart item.",
-          });
+          return fail(
+            res,
+            400,
+            "Invalid item quantity."
+          );
         }
 
         const menuItem =
           await MenuItem.findById(
-            cartItem.menuItemId
-          );
+            item.menuItemId
+          ).catch(() => null);
 
         if (
           !menuItem ||
@@ -438,82 +353,47 @@ router.post(
           String(menuItem.franchiseId) !==
             String(franchise._id)
         ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "One or more menu items are unavailable.",
-          });
-        }
-
-        const price = Number(
-          menuItem.price
-        );
-
-        if (
-          !Number.isFinite(price) ||
-          price < 0
-        ) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid menu price.",
-          });
+          return fail(
+            res,
+            400,
+            "One or more menu items are unavailable."
+          );
         }
 
         subtotal +=
-          price * cartItem.quantity;
+          menuItem.price * item.quantity;
 
         orderItems.push({
           menuItemId: menuItem._id,
           name: menuItem.name,
-          price,
-
-          quantity:
-            cartItem.quantity,
+          price: menuItem.price,
+          quantity: item.quantity,
 
           instructions: String(
-            cartItem.instructions || ""
+            item.instructions || ""
           ).slice(0, 200),
         });
       }
 
-      // ======================================
-      // NO TAX
-      // ======================================
-
-      subtotal = roundAmount(
-        subtotal
-      );
+      subtotal = money(subtotal);
 
       if (
         !Number.isSafeInteger(
-          toPaise(subtotal)
+          paise(subtotal)
         ) ||
         subtotal <= 0
       ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid order total.",
-        });
+        return fail(
+          res,
+          400,
+          "Invalid order total."
+        );
       }
 
-      // ======================================
-      // UNIQUE CUSTOMER IDENTIFIERS
-      // ======================================
-
-      // Every order gets a different private key.
+      // Unique key for this guest order.
       const orderKey = crypto
         .randomBytes(32)
         .toString("hex");
-
-      // Every customer gets a tracking code.
-      const trackingCode = crypto
-        .randomBytes(8)
-        .toString("hex")
-        .toUpperCase();
-
-      // ======================================
-      // CREATE ORDER IN MONGODB
-      // ======================================
 
       const order = await Order.create({
         userId: null,
@@ -523,43 +403,33 @@ router.post(
         guestTokenHash:
           hash(orderKey),
 
-        trackingCode,
+        trackingCode: crypto
+          .randomBytes(8)
+          .toString("hex")
+          .toUpperCase(),
 
-        franchiseId:
-          franchise._id,
+        franchiseId: franchise._id,
 
         items: orderItems,
 
         subtotal,
-
         tax: 0,
-
         total: subtotal,
 
         paymentMethod,
-
-        paymentStatus:
-          "Pending",
-
+        paymentStatus: "Pending",
         status: "Pending",
-
-        // Seat assigned later by Admin.
-        seatNumber: null,
-
-        pickupCounter:
-          "Main counter",
-
-        pickupTime:
-          "Awaiting payment",
 
         notes: String(
           notes || ""
         ).slice(0, 500),
-      });
 
-      // ======================================
-      // NOTIFY ADMIN / FRANCHISE
-      // ======================================
+        pickupCounter: "Main counter",
+        pickupTime: "Awaiting payment",
+
+        // Customer will select after payment.
+        seatNumber: null,
+      });
 
       const io = req.app.get("io");
 
@@ -577,21 +447,12 @@ router.post(
         );
       }
 
-      // ======================================
-      // RETURN CUSTOMER RECEIPT
-      // ======================================
-
       return res.status(201).json({
         success: true,
 
-        message:
-          "Guest order created.",
-
         order: {
           _id: order._id,
-
           ...publicOrder(order),
-
           total: order.total,
         },
 
@@ -603,29 +464,34 @@ router.post(
         error
       );
 
-      return res.status(500).json({
-        success: false,
-        message:
-          "Unable to create order.",
-      });
+      return fail(
+        res,
+        500,
+        "Unable to place order."
+      );
     }
   }
 );
 
 // ============================================
-// TRACK CUSTOMER ORDER
+// KIOSK CONFIGURATION
 // ============================================
 
-// No login required.
-// Customer can track using a 16-character code.
+router.get("/config", (_req, res) => {
+  res.json({
+    success: true,
+    onlineEnabled: configured(),
+  });
+});
+
+// ============================================
+// GET ORDER TRACKING STATUS
+// USED FOR ADMIN CONFIRM AUTO RESET
+// ============================================
 
 router.get(
   "/track/:code",
-  throttle(
-    "track",
-    240,
-    5 * 60 * 1000
-  ),
+  throttle(90, 5 * 60 * 1000),
   async (req, res) => {
     try {
       const code = String(
@@ -634,86 +500,134 @@ router.get(
         .trim()
         .toUpperCase();
 
-      if (
-        !/^[0-9A-F]{16}$/.test(code)
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid tracking code.",
-        });
+      if (!/^[0-9A-F]{16}$/.test(code)) {
+        return fail(
+          res,
+          400,
+          "Invalid tracking code."
+        );
       }
 
-      const order =
-        await Order.findOne({
-          trackingCode: code,
-
-          isGuestOrder: true,
-        });
+      const order = await Order.findOne({
+        trackingCode: code,
+        isGuestOrder: true,
+      });
 
       if (!order) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Tracking code not found.",
-        });
+        return fail(
+          res,
+          404,
+          "Tracking code not found."
+        );
       }
 
       return res.json({
         success: true,
-
         order: publicOrder(order),
       });
     } catch (error) {
       console.error(
-        "Kiosk order tracking:",
+        "Track kiosk order:",
         error
       );
 
-      return res.status(500).json({
-        success: false,
-        message:
-          "Unable to track order.",
-      });
+      return fail(
+        res,
+        500,
+        "Could not track order."
+      );
     }
   }
 );
 
 // ============================================
-// READ-ONLY CUSTOMER SEAT STATUS
+// GET AVAILABLE SEATS
+// ONLY AFTER VERIFIED PAYMENT
 // ============================================
 
-// IMPORTANT:
-// This endpoint DOES NOT assign seats.
-// It only checks the seat chosen by Admin.
-//
-// Compatible with older kiosk frontends
-// using POST /orders/:id/seat.
+router.get(
+  "/orders/:id/seats",
+  ownedGuestOrder,
+  async (req, res) => {
+    try {
+      const order = await Order.findById(
+        req.guestOrder._id
+      );
+
+      if (!order) {
+        return fail(
+          res,
+          404,
+          "Order not found."
+        );
+      }
+
+      if (
+        order.paymentStatus !== "Paid"
+      ) {
+        return fail(
+          res,
+          403,
+          "Complete payment before choosing a seat."
+        );
+      }
+
+      if (
+        ["Cancelled", "Picked Up"].includes(
+          order.status
+        )
+      ) {
+        return fail(
+          res,
+          409,
+          "This order is already closed."
+        );
+      }
+
+      const seats = await listSeats(
+        order.franchiseId
+      );
+
+      return res.json({
+        success: true,
+        ...seats,
+        selectedSeat:
+          order.seatNumber || null,
+      });
+    } catch (error) {
+      console.error(
+        "Kiosk available seats:",
+        error
+      );
+
+      return fail(
+        res,
+        error.status || 500,
+        error.status
+          ? error.message
+          : "Could not load available seats."
+      );
+    }
+  }
+);
+
+// ============================================
+// CUSTOMER CHOOSES OWN SEAT
+// ============================================
 
 router.post(
   "/orders/:id/seat",
-
-  throttle(
-    "seat-status",
-    240,
-    5 * 60 * 1000
-  ),
-
-  verifyGuestOrder,
-
+  throttle(90, 5 * 60 * 1000),
+  ownedGuestOrder,
   async (req, res) => {
     try {
       const order =
-        await Order.findById(
-          req.guestOrder._id
+        await assignSeatByCustomer(
+          req.guestOrder._id,
+          req.body?.seatNumber
         );
 
-      if (!order) {
-        return res.status(404).json({
-          success: false,
-          message: "Order not found.",
-        });
-      }
+      notify(req, order);
 
       return res.json({
         success: true,
@@ -721,23 +635,21 @@ router.post(
         order: publicOrder(order),
 
         message:
-          order.seatNumber != null
-            ? `Admin assigned seat ${order.seatNumber}.`
-            : order.paymentStatus === "Paid"
-            ? "Payment verified. Waiting for Admin to assign your seat."
-            : "Payment pending.",
+          `Seat ${order.seatNumber} confirmed.`,
       });
     } catch (error) {
       console.error(
-        "Kiosk seat lookup:",
+        "Customer seat selection:",
         error
       );
 
-      return res.status(500).json({
-        success: false,
-        message:
-          "Could not check seat.",
-      });
+      return fail(
+        res,
+        error.status || 500,
+        error.status
+          ? error.message
+          : "Could not confirm your seat."
+      );
     }
   }
 );
@@ -748,25 +660,17 @@ router.post(
 
 router.post(
   "/orders/:id/pay",
-
-  throttle(
-    "payment",
-    120,
-    5 * 60 * 1000
-  ),
-
-  verifyGuestOrder,
-
+  ownedGuestOrder,
   async (req, res) => {
     try {
       const order = req.guestOrder;
 
-      if (!onlineEnabled()) {
-        return res.status(503).json({
-          success: false,
-          message:
-            "Razorpay is not configured.",
-        });
+      if (!configured()) {
+        return fail(
+          res,
+          503,
+          "Razorpay is not configured."
+        );
       }
 
       if (
@@ -775,16 +679,12 @@ router.post(
         order.status === "Cancelled" ||
         order.paymentStatus === "Paid"
       ) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "Order is not eligible for online payment.",
-        });
+        return fail(
+          res,
+          409,
+          "Order is not eligible for online payment."
+        );
       }
-
-      // ======================================
-      // CHECK EXISTING PAYMENT
-      // ======================================
 
       let payment =
         await Payment.findOne({
@@ -801,35 +701,12 @@ router.post(
         });
 
       if (!payment) {
-        // Avoid another gateway charge for
-        // an already completed transaction.
-        const completed =
-          await Payment.findOne({
-            orderId: order._id,
-
-            status: "Completed",
-          });
-
-        if (completed) {
-          return res.status(409).json({
-            success: false,
-            message:
-              "Payment was captured. Check order status before retrying.",
-          });
-        }
-
-        // ====================================
-        // CREATE RAZORPAY ORDER
-        // ====================================
-
         const gatewayOrder =
-          await razorpayRequest(
+          await razorpay(
             "orders",
             "POST",
             {
-              amount:
-                toPaise(order.total),
-
+              amount: paise(order.total),
               currency: "INR",
 
               receipt:
@@ -845,36 +722,26 @@ router.post(
             }
           );
 
-        // ====================================
-        // SAVE PAYMENT RECORD
-        // ====================================
+        payment = await Payment.create({
+          orderId: order._id,
+          userId: null,
 
-        payment =
-          await Payment.create({
-            orderId: order._id,
+          amount: order.total,
 
-            userId: null,
+          paymentMethod:
+            order.paymentMethod,
 
-            amount: order.total,
+          status: "Initiated",
 
-            paymentMethod:
-              order.paymentMethod,
+          paymentId:
+            `KIOSK-${crypto
+              .randomBytes(10)
+              .toString("hex")}`,
 
-            status: "Initiated",
-
-            paymentId:
-              `KIOSK-${crypto
-                .randomBytes(10)
-                .toString("hex")}`,
-
-            gatewayOrderId:
-              gatewayOrder.id,
-          });
+          gatewayOrderId:
+            gatewayOrder.id,
+        });
       }
-
-      // ======================================
-      // SEND PAYMENT DETAILS TO FRONTEND
-      // ======================================
 
       return res.json({
         success: true,
@@ -885,22 +752,20 @@ router.post(
         gatewayOrderId:
           payment.gatewayOrderId,
 
-        amount:
-          toPaise(order.total),
-
+        amount: paise(order.total),
         currency: "INR",
       });
     } catch (error) {
       console.error(
-        "Kiosk payment initiation:",
+        "Kiosk payment initiate:",
         error
       );
 
-      return res.status(502).json({
-        success: false,
-        message:
-          "Could not initiate payment.",
-      });
+      return fail(
+        res,
+        502,
+        "Could not initiate payment."
+      );
     }
   }
 );
@@ -909,33 +774,16 @@ router.post(
 // VERIFY RAZORPAY PAYMENT
 // ============================================
 
-// After payment:
-// paymentStatus = Paid
-// seatNumber remains null
-// Admin assigns seat separately.
-
 router.post(
   "/orders/:id/verify",
-  verifyGuestOrder,
+  ownedGuestOrder,
   async (req, res) => {
     try {
-      if (!onlineEnabled()) {
-        return res.status(503).json({
-          success: false,
-          message:
-            "Razorpay is not configured.",
-        });
-      }
-
       const {
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
       } = req.body || {};
-
-      // ======================================
-      // VALIDATE PAYMENT DETAILS
-      // ======================================
 
       if (
         ![
@@ -944,15 +792,14 @@ router.post(
           razorpay_signature,
         ].every(
           (value) =>
-            typeof value === "string" &&
-            value.length > 0
+            typeof value === "string"
         )
       ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Missing payment details.",
-        });
+        return fail(
+          res,
+          400,
+          "Missing payment data."
+        );
       }
 
       const order = req.guestOrder;
@@ -968,124 +815,94 @@ router.post(
       if (
         !payment ||
         order.paymentMethod !==
-          "Online (Razorpay)" ||
-        toPaise(payment.amount) !==
-          toPaise(order.total)
+          "Online (Razorpay)"
       ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Payment/order mismatch.",
-        });
+        return fail(
+          res,
+          403,
+          "Payment mismatch."
+        );
       }
 
-      if (payment.status === "Refunded") {
-        return res.status(409).json({
-          success: false,
-          message:
-            "This payment was refunded.",
-        });
+      const expected = crypto
+        .createHmac(
+          "sha256",
+          process.env.RAZORPAY_KEY_SECRET
+        )
+        .update(
+          `${payment.gatewayOrderId}|${razorpay_payment_id}`
+        )
+        .digest("hex");
+
+      if (
+        !matchingSignature(
+          expected,
+          razorpay_signature
+        )
+      ) {
+        return fail(
+          res,
+          403,
+          "Invalid payment signature."
+        );
+      }
+
+      // Verify captured payment against Razorpay.
+      const captured = await razorpay(
+        `payments/${encodeURIComponent(
+          razorpay_payment_id
+        )}`
+      );
+
+      if (
+        captured.status !== "captured" ||
+        captured.order_id !==
+          payment.gatewayOrderId ||
+        captured.currency !== "INR" ||
+        captured.amount !== paise(order.total)
+      ) {
+        return fail(
+          res,
+          409,
+          "Payment capture is pending. Check status before retrying."
+        );
       }
 
       if (
         payment.transactionId &&
         payment.transactionId !==
-          razorpay_payment_id
+          captured.id
       ) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "Payment transaction mismatch.",
-        });
-      }
-
-      // ======================================
-      // VERIFY RAZORPAY SIGNATURE
-      // ======================================
-
-      const expectedSignature =
-        crypto
-          .createHmac(
-            "sha256",
-            process.env.RAZORPAY_KEY_SECRET
-          )
-          .update(
-            `${payment.gatewayOrderId}|${razorpay_payment_id}`
-          )
-          .digest("hex");
-
-      if (
-        !secureEqual(
-          expectedSignature,
-          razorpay_signature
-        )
-      ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Invalid payment signature.",
-        });
-      }
-
-      // ======================================
-      // VERIFY ACTUAL CAPTURED PAYMENT
-      // ======================================
-
-      const captured =
-        await razorpayRequest(
-          `payments/${encodeURIComponent(
-            razorpay_payment_id
-          )}`
+        return fail(
+          res,
+          409,
+          "Payment transaction mismatch."
         );
-
-      if (
-        captured.status !== "captured" ||
-        captured.id !==
-          razorpay_payment_id ||
-        captured.order_id !==
-          payment.gatewayOrderId ||
-        captured.currency !== "INR" ||
-        captured.amount !==
-          toPaise(order.total)
-      ) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "Payment capture is pending. Check status before retrying.",
-        });
       }
-
-      // ======================================
-      // UPDATE PAYMENT RECORD
-      // ======================================
 
       await Payment.updateOne(
         {
           _id: payment._id,
 
           status: {
-            $ne: "Refunded",
+            $ne: "Completed",
           },
         },
         {
           $set: {
             status: "Completed",
-
-            transactionId:
-              captured.id,
+            transactionId: captured.id,
           },
         }
       );
-
-      // ======================================
-      // MARK ORDER AS PAID
-      // ======================================
 
       await Order.updateOne(
         {
           _id: order._id,
 
-          paymentStatus: "Pending",
+          paymentStatus: {
+            $ne: "Paid",
+          },
         },
         {
           $set: {
@@ -1094,34 +911,11 @@ router.post(
         }
       );
 
-      await Order.updateOne(
-        {
-          _id: order._id,
-
-          status: {
-            $ne: "Cancelled",
-          },
-
-          seatNumber: null,
-        },
-        {
-          $set: {
-            pickupTime:
-              "Waiting for Admin to assign a seat",
-          },
-        }
-      );
-
-      // ======================================
-      // SEAT IS NOT AUTO-ASSIGNED
-      // ======================================
-
       const updated =
-        await Order.findById(
-          order._id
-        );
+        await Order.findById(order._id);
 
-      notifyOrder(req, updated);
+      // Customer may now select their seat.
+      notify(req, updated);
 
       return res.json({
         success: true,
@@ -1129,19 +923,19 @@ router.post(
         order: publicOrder(updated),
 
         message:
-          "Payment successful. Waiting for Admin to assign your seat.",
+          "Payment successful. Please choose an available seat.",
       });
     } catch (error) {
       console.error(
-        "Kiosk payment verification:",
+        "Kiosk payment verify:",
         error
       );
 
-      return res.status(502).json({
-        success: false,
-        message:
-          "Unable to confirm payment. Check tracking before retrying.",
-      });
+      return fail(
+        res,
+        502,
+        "Unable to confirm payment. Please check the tracking code."
+      );
     }
   }
 );
@@ -1150,8 +944,9 @@ router.post(
 // RAZORPAY WEBHOOK
 // ============================================
 
-// app.js mein RAW BODY middleware
-// express.json() se pehle register hona chahiye.
+// IMPORTANT:
+// Mount this route with express.raw() before
+// express.json() in the main Express application.
 
 router.post(
   "/razorpay/webhook",
@@ -1166,26 +961,16 @@ router.post(
       ) {
         return res.status(503).json({
           success: false,
-          message:
-            "Webhook not configured.",
         });
       }
 
-      // ======================================
-      // VERIFY WEBHOOK SIGNATURE
-      // ======================================
-
-      const expected =
-        crypto
-          .createHmac(
-            "sha256",
-            secret
-          )
-          .update(req.body)
-          .digest("hex");
+      const expected = crypto
+        .createHmac("sha256", secret)
+        .update(req.body)
+        .digest("hex");
 
       if (
-        !secureEqual(
+        !matchingSignature(
           expected,
           req.get(
             "x-razorpay-signature"
@@ -1194,8 +979,6 @@ router.post(
       ) {
         return res.status(401).json({
           success: false,
-          message:
-            "Invalid webhook signature.",
         });
       }
 
@@ -1203,16 +986,12 @@ router.post(
         req.body.toString("utf8")
       );
 
-      // ======================================
-      // HANDLE CAPTURED PAYMENT
-      // ======================================
-
       if (
-        event.event !== "payment.captured"
+        event.event !==
+        "payment.captured"
       ) {
         return res.json({
           success: true,
-          ignored: true,
         });
       }
 
@@ -1220,21 +999,14 @@ router.post(
         event.payload?.payment?.entity;
 
       if (
-        !captured?.id ||
-        !captured?.order_id ||
-        captured.status !== "captured" ||
-        captured.currency !== "INR"
+        !captured ||
+        captured.currency !== "INR" ||
+        captured.status !== "captured"
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid payment event.",
         });
       }
-
-      // ======================================
-      // FIND PAYMENT AND ORDER
-      // ======================================
 
       const payment =
         await Payment.findOne({
@@ -1258,22 +1030,12 @@ router.post(
         !order ||
         order.paymentMethod !==
           "Online (Razorpay)" ||
-        toPaise(payment.amount) !==
-          toPaise(order.total) ||
+        payment.amount !== order.total ||
         captured.amount !==
-          toPaise(order.total)
+          paise(order.total)
       ) {
         return res.status(409).json({
           success: false,
-          message:
-            "Payment/order mismatch.",
-        });
-      }
-
-      if (payment.status === "Refunded") {
-        return res.json({
-          success: true,
-          ignored: true,
         });
       }
 
@@ -1282,44 +1044,36 @@ router.post(
         payment.transactionId !==
           captured.id
       ) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "Transaction mismatch.",
-        });
+        return fail(
+          res,
+          409,
+          "Payment transaction mismatch."
+        );
       }
-
-      // ======================================
-      // SAVE VERIFIED PAYMENT
-      // ======================================
 
       await Payment.updateOne(
         {
           _id: payment._id,
 
           status: {
-            $ne: "Refunded",
+            $ne: "Completed",
           },
         },
         {
           $set: {
             status: "Completed",
-
-            transactionId:
-              captured.id,
+            transactionId: captured.id,
           },
         }
       );
-
-      // ======================================
-      // UPDATE ORDER PAYMENT STATUS
-      // ======================================
 
       await Order.updateOne(
         {
           _id: order._id,
 
-          paymentStatus: "Pending",
+          paymentStatus: {
+            $ne: "Paid",
+          },
         },
         {
           $set: {
@@ -1328,40 +1082,18 @@ router.post(
         }
       );
 
-      await Order.updateOne(
-        {
-          _id: order._id,
-
-          status: {
-            $ne: "Cancelled",
-          },
-
-          seatNumber: null,
-        },
-        {
-          $set: {
-            pickupTime:
-              "Waiting for Admin to assign a seat",
-          },
-        }
-      );
-
-      // ======================================
-      // NOTIFY ADMIN / CUSTOMER
-      // ======================================
-
       const updated =
-        await Order.findById(
-          order._id
-        );
+        await Order.findById(order._id);
 
-      notifyOrder(req, updated);
+      notify(req, updated);
 
       return res.json({
         success: true,
+        paymentStatus: "Paid",
 
-        paymentStatus:
-          updated.paymentStatus,
+        seatAssigned: Boolean(
+          updated?.seatNumber
+        ),
       });
     } catch (error) {
       console.error(
@@ -1371,15 +1103,9 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message:
-          "Webhook processing failed.",
       });
     }
   }
 );
-
-// ============================================
-// EXPORT ROUTER
-// ============================================
 
 module.exports = router;
