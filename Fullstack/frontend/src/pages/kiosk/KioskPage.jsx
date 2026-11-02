@@ -3234,7 +3234,7 @@ export function KioskPage() {
                   </span>
                 </div>
               </div>
-// TEST GITHUB UPDATE 2026
+
               <div className="cafe-hero-photo">
                 {heroImage ? (
                   <img
