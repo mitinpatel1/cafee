@@ -3202,7 +3202,7 @@ const [value, setValue] = useState("");
                 </p>
 
                 <h1>
-                  Every bite,
+                  only bite,
                   <br />
 
                   <em>
