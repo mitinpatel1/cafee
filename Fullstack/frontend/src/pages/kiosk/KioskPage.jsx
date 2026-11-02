@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 
+
 import {
   Armchair,
   ArrowLeft,
@@ -26,7 +27,10 @@ import {
   Utensils,
   Wallet,
   X,
+  QrCode,
+  ExternalLink,
 } from "lucide-react";
+
 
 // ======================================================
 // OFFICEBITE KIOSK
@@ -1084,6 +1088,72 @@ const KIOSK_STYLES = String.raw`
   color: var(--forest);
   font-size: 25px;
 }
+  
+/* ========================================
+   UPI QR PAYMENT UI
+======================================== */
+
+.cafe-qr-card {
+  max-width: 460px;
+  margin: 25px auto;
+  padding: 28px;
+  background: #ffffff;
+  border: 1px solid #e2eae2;
+  border-radius: 22px;
+  box-shadow: 0 10px 30px #173f3510;
+  text-align: center;
+}
+
+.cafe-qr-card .cafe-panel-icon {
+  margin: 0 auto 18px;
+}
+
+.cafe-qr-card h2 {
+  color: #173f35;
+  font-size: 25px;
+  font-weight: 900;
+}
+
+.cafe-qr-image {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  padding: 12px;
+  margin: 22px auto;
+  background: #fff;
+  border: 2px solid #e5ebe4;
+  border-radius: 18px;
+}
+
+.cafe-qr-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 38px 12px;
+  color: #173f35;
+}
+
+.cafe-qr-error {
+  padding: 22px 10px;
+  color: #b44430;
+}
+
+.cafe-qr-error p {
+  margin-bottom: 17px;
+}
+
+@media (max-width: 600px) {
+  .cafe-qr-card {
+    padding: 18px;
+  }
+
+  .cafe-qr-image {
+    max-width: 240px;
+  }
+}
+
 
 /* ORDER STATUS */
 
@@ -1808,7 +1878,12 @@ export function KioskPage() {
     });
 
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+const [error, setError] = useState("");
+
+const [upiQr, setUpiQr] = useState(null);
+const [upiQrLoading, setUpiQrLoading] = useState(false);
+const [upiQrError, setUpiQrError] = useState("");
+
 
   const lock = useRef(false);
 
@@ -2219,6 +2294,63 @@ export function KioskPage() {
     },
     []
   );
+  
+const loadUpiQr = useCallback(async (order, orderKey) => {
+  if (!order?._id || !orderKey) return;
+
+  setUpiQrLoading(true);
+  setUpiQrError("");
+
+  try {
+    const response = await api(
+      `/kiosk/orders/${order._id}/upi-qr`,
+      {
+        headers: {
+          "x-kiosk-order-key": orderKey,
+        },
+      }
+    );
+
+    if (
+      !response.qrDataUrl ||
+      !response.qrDataUrl.startsWith("data:image/")
+    ) {
+      throw new Error("QR image not received from server.");
+    }
+
+    setUpiQr(response);
+  } catch (err) {
+    setUpiQr(null);
+    setUpiQrError(
+      err.message || "Unable to generate UPI QR."
+    );
+  } finally {
+    setUpiQrLoading(false);
+  }
+}, []);
+
+// Load QR automatically after UPI order creation
+// and when restoring a pending order after refresh.
+useEffect(() => {
+  if (
+    screen !== "status" ||
+    !activeOrder ||
+    activeOrder.method !== "Counter UPI" ||
+    isPaid(activeOrder.order)
+  ) {
+    return;
+  }
+
+  void loadUpiQr(activeOrder.order, activeOrder.key);
+}, [
+  screen,
+  activeOrder?.order?._id,
+  activeOrder?.key,
+  activeOrder?.method,
+  activeOrder?.order?.paymentStatus,
+  loadUpiQr,
+]);
+
 
   // ====================================================
   // RESTORE ORDER AND POLL SERVER
@@ -2635,7 +2767,7 @@ export function KioskPage() {
   // CREATE ORDER
   // ====================================================
 
-  async function placeOrder() {
+  async function placeOrder(selectedMethod = method) {
     if (
       lock.current ||
       !cart.length ||
@@ -2660,7 +2792,7 @@ export function KioskPage() {
           body: JSON.stringify({
             franchiseId,
 
-            paymentMethod: method,
+           paymentMethod: selectedMethod,
 
             items: cart.map(
               (item) => ({
@@ -2680,7 +2812,7 @@ export function KioskPage() {
       const fresh = {
         order: result.order,
         key: result.orderKey,
-        method,
+        method: selectedMethod,
         franchiseId,
         createdAtMs: Date.now(),
       };
@@ -2701,10 +2833,9 @@ export function KioskPage() {
       setScreen("status");
 
       // Online payment.
-      if (
-        method ===
-        "Online (Razorpay)"
-      ) {
+      
+if (selectedMethod === "Online (Razorpay)") {
+
         try {
           await payOnline(
             result.order,
@@ -2902,14 +3033,14 @@ export function KioskPage() {
     },
 
     {
-      value: "Counter UPI",
-      label: "UPI at counter",
-      description:
-        "Scan and pay at the counter",
-      icon: CreditCard,
-    },
+  value: "Counter UPI",
+  label: "Scan UPI QR",
+  description: "Tap to generate your payment QR now",
+  icon: QrCode,
+}
   ];
-
+// Payment radio input
+const [value, setValue] = useState("");
   // ====================================================
   // CURRENT ORDER STATE
   // ====================================================
@@ -3484,7 +3615,9 @@ export function KioskPage() {
                   busy ||
                   quantity === 0
                 }
-                onClick={placeOrder}
+                
+onClick={() => void placeOrder(method)}
+
               >
                 {busy
                   ? "Processing..."
@@ -3626,6 +3759,84 @@ export function KioskPage() {
                       : "⏳ Payment pending"}
                   </span>
                 </div>
+                
+{/* =====================================
+    UPI QR PAYMENT SCREEN
+===================================== */}
+
+{!paymentComplete &&
+  activeOrder.method === "Counter UPI" && (
+    <div className="cafe-qr-card">
+      <div className="cafe-panel-icon">
+        <QrCode size={30} />
+      </div>
+
+      <h2>Scan & Pay</h2>
+
+      <p className="cafe-subtitle">
+        Scan this QR using any supported UPI app.
+      </p>
+
+      {upiQrLoading ? (
+        <div className="cafe-qr-loading">
+          <RefreshCw
+            size={28}
+            className="cafe-spin"
+          />
+          <p>Generating your QR code...</p>
+        </div>
+      ) : upiQr?.qrDataUrl ? (
+        <>
+          <img
+            src={upiQr.qrDataUrl}
+            alt="UPI payment QR code"
+            className="cafe-qr-image"
+          />
+
+          <h2>{fmt(upiQr.amount)}</h2>
+
+          <p className="cafe-subtitle">
+            Pay to: {upiQr.payeeName}
+          </p>
+
+          <p className="cafe-subtitle">
+            Order: {upiQr.orderNumber}
+          </p>
+        </>
+      ) : (
+        <div className="cafe-qr-error">
+          <p>
+            {upiQrError ||
+              "QR code could not be loaded."}
+          </p>
+
+          <button
+            type="button"
+            className="cafe-primary"
+            onClick={() =>
+              void loadUpiQr(
+                activeOrder.order,
+                activeOrder.key
+              )
+            }
+          >
+            <RefreshCw size={17} />
+            Generate QR / Retry
+          </button>
+        </div>
+      )}
+
+      <div className="cafe-hint">
+        <ShieldCheck size={18} />
+
+        After making payment, please provide
+        your transaction reference to the cashier.
+        Seat selection unlocks after admin
+        verifies the payment.
+      </div>
+    </div>
+  )}
+
 
                 {/* PAYMENT TIMER */}
 

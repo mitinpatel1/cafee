@@ -3,6 +3,7 @@
 
 const express = require("express");
 const crypto = require("crypto");
+const QRCode = require("qrcode");
 
 const Order = require("../models/Order");
 const Payment = require("../models/Payment");
@@ -25,11 +26,24 @@ router.use((_req, res, next) => {
 // HELPERS
 // ============================================
 
-const configured = () =>
+const onlineConfigured = () =>
   Boolean(
     process.env.RAZORPAY_KEY_ID &&
     process.env.RAZORPAY_KEY_SECRET
   );
+
+const upiVpa = () =>
+  String(process.env.UPI_VPA || "").trim();
+
+const upiConfigured = () =>
+  /^[A-Za-z0-9._-]{2,100}@[A-Za-z][A-Za-z0-9.-]{1,100}$/.test(
+    upiVpa()
+  );
+
+const upiPayee = () =>
+  String(
+    process.env.UPI_PAYEE_NAME || "OfficeBite"
+  ).trim().slice(0, 60) || "OfficeBite";
 
 const hash = (value) =>
   crypto
@@ -37,14 +51,14 @@ const hash = (value) =>
     .update(value)
     .digest("hex");
 
-const money = (amount) =>
-  Math.round(Number(amount) * 100) / 100;
+const money = (value) =>
+  Math.round(Number(value) * 100) / 100;
 
-const paise = (rupees) =>
-  Math.round(Number(rupees) * 100);
+const paise = (value) =>
+  Math.round(Number(value) * 100);
 
-function fail(res, status, message) {
-  return res.status(status).json({
+function fail(res, code, message) {
+  return res.status(code).json({
     success: false,
     message,
   });
@@ -69,6 +83,10 @@ function publicOrder(order) {
     paymentStatus: order.paymentStatus,
     seatNumber: order.seatNumber || null,
 
+    upiReferenceSubmitted: Boolean(
+      order.counterPaymentReference
+    ),
+
     seatPending:
       order.paymentStatus === "Paid" &&
       !order.seatNumber &&
@@ -77,13 +95,12 @@ function publicOrder(order) {
       ),
 
     pickupTime: order.pickupTime,
-    estimatedReadyTime:
-      order.estimatedReadyTime,
+    estimatedReadyTime: order.estimatedReadyTime,
   };
 }
 
 // ============================================
-// BASIC REQUEST LIMITING
+// REQUEST LIMITING
 // ============================================
 
 const requestWindows = new Map();
@@ -97,21 +114,17 @@ function throttle(limit, periodMs) {
     }`;
 
     const now = Date.now();
-    const old = requestWindows.get(key);
+    const previous = requestWindows.get(key);
 
-    const record =
-      !old || now - old.start > periodMs
-        ? {
-            start: now,
-            count: 0,
-          }
-        : old;
+    const current =
+      !previous || now - previous.start > periodMs
+        ? { start: now, count: 0 }
+        : previous;
 
-    record.count++;
+    current.count += 1;
+    requestWindows.set(key, current);
 
-    requestWindows.set(key, record);
-
-    if (record.count > limit) {
+    if (current.count > limit) {
       return fail(
         res,
         429,
@@ -152,14 +165,11 @@ function notify(req, order) {
 
   io.to(
     `franchise_${order.franchiseId}`
-  ).emit(
-    "franchise_order_updated",
-    order
-  );
+  ).emit("franchise_order_updated", order);
 }
 
 // ============================================
-// RAZORPAY REQUEST
+// RAZORPAY API HELPER
 // ============================================
 
 async function razorpay(
@@ -167,7 +177,7 @@ async function razorpay(
   method = "GET",
   body
 ) {
-  const credentials = Buffer.from(
+  const auth = Buffer.from(
     `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`
   ).toString("base64");
 
@@ -177,17 +187,12 @@ async function razorpay(
       method,
 
       headers: {
-        Authorization:
-          `Basic ${credentials}`,
-
-        "Content-Type":
-          "application/json",
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/json",
       },
 
       ...(body
-        ? {
-            body: JSON.stringify(body),
-          }
+        ? { body: JSON.stringify(body) }
         : {}),
 
       signal: AbortSignal.timeout(15000),
@@ -210,11 +215,7 @@ async function razorpay(
 // GUEST ORDER AUTHORIZATION
 // ============================================
 
-async function ownedGuestOrder(
-  req,
-  res,
-  next
-) {
+async function ownedGuestOrder(req, res, next) {
   try {
     const token =
       req.get("x-kiosk-order-key") || "";
@@ -258,7 +259,6 @@ async function ownedGuestOrder(
 
 // ============================================
 // CREATE GUEST ORDER
-// NO LOGIN REQUIRED
 // ============================================
 
 router.post(
@@ -288,9 +288,8 @@ router.post(
       }
 
       if (
-        paymentMethod ===
-          "Online (Razorpay)" &&
-        !configured()
+        paymentMethod === "Online (Razorpay)" &&
+        !onlineConfigured()
       ) {
         return fail(
           res,
@@ -299,11 +298,21 @@ router.post(
         );
       }
 
-      const franchise =
-        await Franchise.findOne({
-          _id: franchiseId,
-          status: "Active",
-        }).catch(() => null);
+      if (
+        paymentMethod === "Counter UPI" &&
+        !upiConfigured()
+      ) {
+        return fail(
+          res,
+          503,
+          "UPI payment is not configured. Add UPI_VPA to backend/.env."
+        );
+      }
+
+      const franchise = await Franchise.findOne({
+        _id: franchiseId,
+        status: "Active",
+      }).catch(() => null);
 
       if (!franchise) {
         return fail(
@@ -342,10 +351,9 @@ router.post(
           );
         }
 
-        const menuItem =
-          await MenuItem.findById(
-            item.menuItemId
-          ).catch(() => null);
+        const menuItem = await MenuItem.findById(
+          item.menuItemId
+        ).catch(() => null);
 
         if (
           !menuItem ||
@@ -368,7 +376,6 @@ router.post(
           name: menuItem.name,
           price: menuItem.price,
           quantity: item.quantity,
-
           instructions: String(
             item.instructions || ""
           ).slice(0, 200),
@@ -378,9 +385,7 @@ router.post(
       subtotal = money(subtotal);
 
       if (
-        !Number.isSafeInteger(
-          paise(subtotal)
-        ) ||
+        !Number.isSafeInteger(paise(subtotal)) ||
         subtotal <= 0
       ) {
         return fail(
@@ -390,7 +395,6 @@ router.post(
         );
       }
 
-      // Unique key for this guest order.
       const orderKey = crypto
         .randomBytes(32)
         .toString("hex");
@@ -399,9 +403,7 @@ router.post(
         userId: null,
 
         isGuestOrder: true,
-
-        guestTokenHash:
-          hash(orderKey),
+        guestTokenHash: hash(orderKey),
 
         trackingCode: crypto
           .randomBytes(8)
@@ -409,7 +411,6 @@ router.post(
           .toUpperCase(),
 
         franchiseId: franchise._id,
-
         items: orderItems,
 
         subtotal,
@@ -427,7 +428,6 @@ router.post(
         pickupCounter: "Main counter",
         pickupTime: "Awaiting payment",
 
-        // Customer will select after payment.
         seatNumber: null,
       });
 
@@ -474,19 +474,19 @@ router.post(
 );
 
 // ============================================
-// KIOSK CONFIGURATION
+// CONFIGURATION
 // ============================================
 
 router.get("/config", (_req, res) => {
   res.json({
     success: true,
-    onlineEnabled: configured(),
+    onlineEnabled: onlineConfigured(),
+    upiEnabled: upiConfigured(),
   });
 });
 
 // ============================================
-// GET ORDER TRACKING STATUS
-// USED FOR ADMIN CONFIRM AUTO RESET
+// ORDER TRACKING
 // ============================================
 
 router.get(
@@ -541,8 +541,7 @@ router.get(
 );
 
 // ============================================
-// GET AVAILABLE SEATS
-// ONLY AFTER VERIFIED PAYMENT
+// AVAILABLE SEATS
 // ============================================
 
 router.get(
@@ -562,9 +561,7 @@ router.get(
         );
       }
 
-      if (
-        order.paymentStatus !== "Paid"
-      ) {
+      if (order.paymentStatus !== "Paid") {
         return fail(
           res,
           403,
@@ -591,8 +588,7 @@ router.get(
       return res.json({
         success: true,
         ...seats,
-        selectedSeat:
-          order.seatNumber || null,
+        selectedSeat: order.seatNumber || null,
       });
     } catch (error) {
       console.error(
@@ -612,7 +608,7 @@ router.get(
 );
 
 // ============================================
-// CUSTOMER CHOOSES OWN SEAT
+// CUSTOMER SEAT CONFIRMATION
 // ============================================
 
 router.post(
@@ -621,21 +617,17 @@ router.post(
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const order =
-        await assignSeatByCustomer(
-          req.guestOrder._id,
-          req.body?.seatNumber
-        );
+      const order = await assignSeatByCustomer(
+        req.guestOrder._id,
+        req.body?.seatNumber
+      );
 
       notify(req, order);
 
       return res.json({
         success: true,
-
         order: publicOrder(order),
-
-        message:
-          `Seat ${order.seatNumber} confirmed.`,
+        message: `Seat ${order.seatNumber} confirmed.`,
       });
     } catch (error) {
       console.error(
@@ -655,7 +647,211 @@ router.post(
 );
 
 // ============================================
-// INITIATE ONLINE PAYMENT
+// UPI QR CODE GENERATION
+// ============================================
+
+// QR generation is allowed only for an
+// authenticated guest order with pending UPI payment.
+
+router.get(
+  "/orders/:id/upi-qr",
+  throttle(90, 5 * 60 * 1000),
+  ownedGuestOrder,
+  async (req, res) => {
+    try {
+      const order = await Order.findById(
+        req.guestOrder._id
+      );
+
+      if (
+        !order ||
+        order.paymentMethod !== "Counter UPI"
+      ) {
+        return fail(
+          res,
+          409,
+          "This order does not use Counter UPI."
+        );
+      }
+
+      if (
+        ["Cancelled", "Picked Up"].includes(
+          order.status
+        ) ||
+        order.paymentStatus !== "Pending"
+      ) {
+        return fail(
+          res,
+          409,
+          "UPI QR is unavailable for this order."
+        );
+      }
+
+      if (!upiConfigured()) {
+        return fail(
+          res,
+          503,
+          "UPI QR is not configured on the server."
+        );
+      }
+
+      const amount = money(order.total);
+
+      if (
+        !Number.isFinite(amount) ||
+        amount <= 0
+      ) {
+        return fail(
+          res,
+          400,
+          "Invalid order amount."
+        );
+      }
+
+      // Amount and merchant UPI ID are
+      // taken from trusted backend data.
+
+      const params = new URLSearchParams({
+        pa: upiVpa(),
+        pn: upiPayee(),
+        am: amount.toFixed(2),
+        cu: "INR",
+        tn: `OfficeBite ${order.orderNumber}`.slice(
+          0,
+          80
+        ),
+      });
+
+      const uri = `upi://pay?${params.toString()}`;
+
+      // FIX: await is inside this async route.
+
+      const qrDataUrl = await QRCode.toDataURL(
+        uri,
+        {
+          errorCorrectionLevel: "M",
+          width: 300,
+          margin: 2,
+
+          color: {
+            dark: "#173b33",
+            light: "#ffffff",
+          },
+        }
+      );
+
+      return res.json({
+        success: true,
+
+        qrDataUrl,
+        uri,
+        amount,
+        currency: "INR",
+
+        payeeName: upiPayee(),
+        orderNumber: order.orderNumber,
+
+        submittedReference:
+          order.counterPaymentReference || "",
+
+        verification:
+          "Manual admin payment verification required",
+      });
+    } catch (error) {
+      console.error("Kiosk UPI QR:", error);
+
+      return fail(
+        res,
+        500,
+        "Could not generate UPI QR."
+      );
+    }
+  }
+);
+
+// ============================================
+// SUBMIT CUSTOMER UPI REFERENCE
+// ============================================
+
+// Customer submission does NOT mark payment Paid.
+// Admin must verify actual receipt of funds.
+
+router.post(
+  "/orders/:id/upi-reference",
+  throttle(30, 5 * 60 * 1000),
+  ownedGuestOrder,
+  async (req, res) => {
+    try {
+      const reference = String(
+        req.body?.reference || ""
+      ).trim();
+
+      if (
+        !/^[A-Za-z0-9-]{8,40}$/.test(reference)
+      ) {
+        return fail(
+          res,
+          400,
+          "Enter a valid UPI reference (8–40 characters)."
+        );
+      }
+
+      const order = await Order.findOneAndUpdate(
+        {
+          _id: req.guestOrder._id,
+          paymentMethod: "Counter UPI",
+          paymentStatus: "Pending",
+
+          status: {
+            $nin: ["Cancelled", "Picked Up"],
+          },
+        },
+        {
+          $set: {
+            counterPaymentReference: reference,
+          },
+        },
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
+
+      if (!order) {
+        return fail(
+          res,
+          409,
+          "UPI reference cannot be submitted for this order."
+        );
+      }
+
+      notify(req, order);
+
+      return res.json({
+        success: true,
+
+        order: publicOrder(order),
+
+        message:
+          "Reference sent to admin. Wait for payment confirmation.",
+      });
+    } catch (error) {
+      console.error(
+        "Kiosk UPI reference:",
+        error
+      );
+
+      return fail(
+        res,
+        500,
+        "Could not submit UPI reference."
+      );
+    }
+  }
+);
+
+// ============================================
+// RAZORPAY PAYMENT INITIATION
 // ============================================
 
 router.post(
@@ -665,7 +861,7 @@ router.post(
     try {
       const order = req.guestOrder;
 
-      if (!configured()) {
+      if (!onlineConfigured()) {
         return fail(
           res,
           503,
@@ -686,68 +882,58 @@ router.post(
         );
       }
 
-      let payment =
-        await Payment.findOne({
-          orderId: order._id,
+      let payment = await Payment.findOne({
+        orderId: order._id,
 
-          status: {
-            $in: [
-              "Initiated",
-              "Processing",
-            ],
-          },
-        }).sort({
-          createdAt: -1,
-        });
+        status: {
+          $in: ["Initiated", "Processing"],
+        },
+      }).sort({
+        createdAt: -1,
+      });
 
       if (!payment) {
-        const gatewayOrder =
-          await razorpay(
-            "orders",
-            "POST",
-            {
-              amount: paise(order.total),
-              currency: "INR",
+        const gatewayOrder = await razorpay(
+          "orders",
+          "POST",
+          {
+            amount: paise(order.total),
+            currency: "INR",
 
-              receipt:
-                order.orderNumber.slice(
-                  0,
-                  40
-                ),
+            receipt: order.orderNumber.slice(
+              0,
+              40
+            ),
 
-              notes: {
-                officebiteOrderId:
-                  String(order._id),
-              },
-            }
-          );
+            notes: {
+              officebiteOrderId: String(
+                order._id
+              ),
+            },
+          }
+        );
 
         payment = await Payment.create({
           orderId: order._id,
           userId: null,
 
           amount: order.total,
-
-          paymentMethod:
-            order.paymentMethod,
+          paymentMethod: order.paymentMethod,
 
           status: "Initiated",
 
-          paymentId:
-            `KIOSK-${crypto
-              .randomBytes(10)
-              .toString("hex")}`,
+          paymentId: `KIOSK-${crypto
+            .randomBytes(10)
+            .toString("hex")}`,
 
-          gatewayOrderId:
-            gatewayOrder.id,
+          gatewayOrderId: gatewayOrder.id,
         });
       }
 
       return res.json({
         success: true,
 
-        keyId:
-          process.env.RAZORPAY_KEY_ID,
+        keyId: process.env.RAZORPAY_KEY_ID,
 
         gatewayOrderId:
           payment.gatewayOrderId,
@@ -771,7 +957,7 @@ router.post(
 );
 
 // ============================================
-// VERIFY RAZORPAY PAYMENT
+// RAZORPAY PAYMENT VERIFICATION
 // ============================================
 
 router.post(
@@ -804,13 +990,10 @@ router.post(
 
       const order = req.guestOrder;
 
-      const payment =
-        await Payment.findOne({
-          orderId: order._id,
-
-          gatewayOrderId:
-            razorpay_order_id,
-        });
+      const payment = await Payment.findOne({
+        orderId: order._id,
+        gatewayOrderId: razorpay_order_id,
+      });
 
       if (
         !payment ||
@@ -847,7 +1030,8 @@ router.post(
         );
       }
 
-      // Verify captured payment against Razorpay.
+      // Confirm payment is captured by Razorpay.
+
       const captured = await razorpay(
         `payments/${encodeURIComponent(
           razorpay_payment_id
@@ -870,8 +1054,7 @@ router.post(
 
       if (
         payment.transactionId &&
-        payment.transactionId !==
-          captured.id
+        payment.transactionId !== captured.id
       ) {
         return fail(
           res,
@@ -883,10 +1066,7 @@ router.post(
       await Payment.updateOne(
         {
           _id: payment._id,
-
-          status: {
-            $ne: "Completed",
-          },
+          status: { $ne: "Completed" },
         },
         {
           $set: {
@@ -899,10 +1079,7 @@ router.post(
       await Order.updateOne(
         {
           _id: order._id,
-
-          paymentStatus: {
-            $ne: "Paid",
-          },
+          paymentStatus: { $ne: "Paid" },
         },
         {
           $set: {
@@ -911,10 +1088,10 @@ router.post(
         }
       );
 
-      const updated =
-        await Order.findById(order._id);
+      const updated = await Order.findById(
+        order._id
+      );
 
-      // Customer may now select their seat.
       notify(req, updated);
 
       return res.json({
@@ -944,9 +1121,10 @@ router.post(
 // RAZORPAY WEBHOOK
 // ============================================
 
-// IMPORTANT:
-// Mount this route with express.raw() before
-// express.json() in the main Express application.
+// Important:
+// The webhook must receive the RAW request body.
+// Configure express.raw() before express.json()
+// for this endpoint in the application.
 
 router.post(
   "/razorpay/webhook",
@@ -972,9 +1150,7 @@ router.post(
       if (
         !matchingSignature(
           expected,
-          req.get(
-            "x-razorpay-signature"
-          )
+          req.get("x-razorpay-signature")
         )
       ) {
         return res.status(401).json({
@@ -1008,11 +1184,9 @@ router.post(
         });
       }
 
-      const payment =
-        await Payment.findOne({
-          gatewayOrderId:
-            captured.order_id,
-        });
+      const payment = await Payment.findOne({
+        gatewayOrderId: captured.order_id,
+      });
 
       if (!payment) {
         return res.json({
@@ -1021,18 +1195,16 @@ router.post(
         });
       }
 
-      const order =
-        await Order.findById(
-          payment.orderId
-        );
+      const order = await Order.findById(
+        payment.orderId
+      );
 
       if (
         !order ||
         order.paymentMethod !==
           "Online (Razorpay)" ||
         payment.amount !== order.total ||
-        captured.amount !==
-          paise(order.total)
+        captured.amount !== paise(order.total)
       ) {
         return res.status(409).json({
           success: false,
@@ -1041,8 +1213,7 @@ router.post(
 
       if (
         payment.transactionId &&
-        payment.transactionId !==
-          captured.id
+        payment.transactionId !== captured.id
       ) {
         return fail(
           res,
@@ -1054,10 +1225,7 @@ router.post(
       await Payment.updateOne(
         {
           _id: payment._id,
-
-          status: {
-            $ne: "Completed",
-          },
+          status: { $ne: "Completed" },
         },
         {
           $set: {
@@ -1070,10 +1238,7 @@ router.post(
       await Order.updateOne(
         {
           _id: order._id,
-
-          paymentStatus: {
-            $ne: "Paid",
-          },
+          paymentStatus: { $ne: "Paid" },
         },
         {
           $set: {
@@ -1082,8 +1247,9 @@ router.post(
         }
       );
 
-      const updated =
-        await Order.findById(order._id);
+      const updated = await Order.findById(
+        order._id
+      );
 
       notify(req, updated);
 
