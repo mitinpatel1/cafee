@@ -1878,11 +1878,11 @@ export function KioskPage() {
     });
 
   const [busy, setBusy] = useState(false);
-const [error, setError] = useState("");
+  const [error, setError] = useState("");
 
-const [upiQr, setUpiQr] = useState(null);
-const [upiQrLoading, setUpiQrLoading] = useState(false);
-const [upiQrError, setUpiQrError] = useState("");
+  const [upiQr, setUpiQr] = useState(null);
+  const [upiQrLoading, setUpiQrLoading] = useState(false);
+  const [upiQrError, setUpiQrError] = useState("");
 
 
   const lock = useRef(false);
@@ -1976,14 +1976,14 @@ const [upiQrError, setUpiQrError] = useState("");
           );
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  
+
   // ============================================
   // LOAD MENU — REAL MENU OR CATALOG PREVIEW
   // ============================================
@@ -1999,8 +1999,8 @@ const [upiQrError, setUpiQrError] = useState("");
       try {
         const endpoint = franchiseId
           ? `/menu?franchiseId=${encodeURIComponent(
-              franchiseId
-            )}&isAvailable=true`
+            franchiseId
+          )}&isAvailable=true`
           : "/menu?isAvailable=true";
 
         const response = await api(endpoint);
@@ -2139,15 +2139,15 @@ const [upiQrError, setUpiQrError] = useState("");
         .map((item) =>
           item.id === food._id
             ? {
-                ...item,
-                quantity: Math.max(
-                  0,
-                  Math.min(
-                    50,
-                    item.quantity + delta
-                  )
-                ),
-              }
+              ...item,
+              quantity: Math.max(
+                0,
+                Math.min(
+                  50,
+                  item.quantity + delta
+                )
+              ),
+            }
             : item
         )
         .filter(
@@ -2233,7 +2233,7 @@ const [upiQrError, setUpiQrError] = useState("");
         if (
           !current ||
           current.order.trackingCode !==
-            trackingCode
+          trackingCode
         ) {
           return current;
         }
@@ -2294,62 +2294,62 @@ const [upiQrError, setUpiQrError] = useState("");
     },
     []
   );
-  
-const loadUpiQr = useCallback(async (order, orderKey) => {
-  if (!order?._id || !orderKey) return;
 
-  setUpiQrLoading(true);
-  setUpiQrError("");
+  const loadUpiQr = useCallback(async (order, orderKey) => {
+    if (!order?._id || !orderKey) return;
 
-  try {
-    const response = await api(
-      `/kiosk/orders/${order._id}/upi-qr`,
-      {
-        headers: {
-          "x-kiosk-order-key": orderKey,
-        },
+    setUpiQrLoading(true);
+    setUpiQrError("");
+
+    try {
+      const response = await api(
+        `/kiosk/orders/${order._id}/upi-qr`,
+        {
+          headers: {
+            "x-kiosk-order-key": orderKey,
+          },
+        }
+      );
+
+      if (
+        !response.qrDataUrl ||
+        !response.qrDataUrl.startsWith("data:image/")
+      ) {
+        throw new Error("QR image not received from server.");
       }
-    );
 
+      setUpiQr(response);
+    } catch (err) {
+      setUpiQr(null);
+      setUpiQrError(
+        err.message || "Unable to generate UPI QR."
+      );
+    } finally {
+      setUpiQrLoading(false);
+    }
+  }, []);
+
+  // Load QR automatically after UPI order creation
+  // and when restoring a pending order after refresh.
+  useEffect(() => {
     if (
-      !response.qrDataUrl ||
-      !response.qrDataUrl.startsWith("data:image/")
+      screen !== "status" ||
+      !activeOrder ||
+      activeOrder.method !== "Counter UPI" ||
+      isPaid(activeOrder.order)
     ) {
-      throw new Error("QR image not received from server.");
+      return;
     }
 
-    setUpiQr(response);
-  } catch (err) {
-    setUpiQr(null);
-    setUpiQrError(
-      err.message || "Unable to generate UPI QR."
-    );
-  } finally {
-    setUpiQrLoading(false);
-  }
-}, []);
-
-// Load QR automatically after UPI order creation
-// and when restoring a pending order after refresh.
-useEffect(() => {
-  if (
-    screen !== "status" ||
-    !activeOrder ||
-    activeOrder.method !== "Counter UPI" ||
-    isPaid(activeOrder.order)
-  ) {
-    return;
-  }
-
-  void loadUpiQr(activeOrder.order, activeOrder.key);
-}, [
-  screen,
-  activeOrder?.order?._id,
-  activeOrder?.key,
-  activeOrder?.method,
-  activeOrder?.order?.paymentStatus,
-  loadUpiQr,
-]);
+    void loadUpiQr(activeOrder.order, activeOrder.key);
+  }, [
+    screen,
+    activeOrder?.order?._id,
+    activeOrder?.key,
+    activeOrder?.method,
+    activeOrder?.order?.paymentStatus,
+    loadUpiQr,
+  ]);
 
 
   // ====================================================
@@ -2511,7 +2511,7 @@ useEffect(() => {
       // every second at zero.
       if (
         Date.now() -
-          lastTimeoutAttemptRef.current <
+        lastTimeoutAttemptRef.current <
         8000
       ) {
         return;
@@ -2536,7 +2536,7 @@ useEffect(() => {
         if (
           !currentOrder ||
           currentOrder.order.trackingCode !==
-            code
+          code
         ) {
           return;
         }
@@ -2750,7 +2750,7 @@ useEffect(() => {
           (event) => {
             failOnce(
               event.error?.description ||
-                "Payment failed."
+              "Payment failed."
             );
           }
         );
@@ -2792,7 +2792,7 @@ useEffect(() => {
           body: JSON.stringify({
             franchiseId,
 
-           paymentMethod: selectedMethod,
+            paymentMethod: selectedMethod,
 
             items: cart.map(
               (item) => ({
@@ -2833,8 +2833,8 @@ useEffect(() => {
       setScreen("status");
 
       // Online payment.
-      
-if (selectedMethod === "Online (Razorpay)") {
+
+      if (selectedMethod === "Online (Razorpay)") {
 
         try {
           await payOnline(
@@ -2863,7 +2863,7 @@ if (selectedMethod === "Online (Razorpay)") {
         ) {
           await refreshOrder(
             result.order.trackingCode
-          ).catch(() => {});
+          ).catch(() => { });
         }
       }
     } catch (err) {
@@ -2995,7 +2995,7 @@ if (selectedMethod === "Online (Razorpay)") {
       await loadSeats(
         current.order,
         current.key
-      ).catch(() => {});
+      ).catch(() => { });
     } finally {
       lock.current = false;
       setBusy(false);
@@ -3009,20 +3009,20 @@ if (selectedMethod === "Online (Razorpay)") {
   const paymentMethods = [
     ...(onlineEnabled
       ? [
-          {
-            value:
-              "Online (Razorpay)",
+        {
+          value:
+            "Online (Razorpay)",
 
-            label:
-              "Pay online",
+          label:
+            "Pay online",
 
-            description:
-              "UPI, cards and net banking",
+          description:
+            "UPI, cards and net banking",
 
-            icon:
-              CreditCard,
-          },
-        ]
+          icon:
+            CreditCard,
+        },
+      ]
       : []),
 
     {
@@ -3032,17 +3032,17 @@ if (selectedMethod === "Online (Razorpay)") {
       icon: Wallet,
     },
 
-    
-{
-  value: "Counter UPI",
-  label: "Scan UPI QR",
-  description: "Scan QR code to complete your payment",
-  icon: QrCode,
-},
+
+    {
+      value: "Counter UPI",
+      label: "Scan UPI QR",
+      description: "Scan QR code to complete your payment",
+      icon: QrCode,
+    },
 
   ];
-// Payment radio input
-const [value, setValue] = useState("");
+  // Payment radio input
+  const [value, setValue] = useState("");
   // ====================================================
   // CURRENT ORDER STATE
   // ====================================================
@@ -3061,10 +3061,10 @@ const [value, setValue] = useState("");
       ? 0
       : screen === "checkout" ||
         !paymentComplete
-      ? 1
-      : seatConfirmed
-      ? 3
-      : 2;
+        ? 1
+        : seatConfirmed
+          ? 3
+          : 2;
 
   // ====================================================
   // COMPLETE KIOSK UI
@@ -3202,7 +3202,7 @@ const [value, setValue] = useState("");
                 </p>
 
                 <h1>
-                  only bite,
+                  Every bite,
                   <br />
 
                   <em>
@@ -3234,7 +3234,7 @@ const [value, setValue] = useState("");
                   </span>
                 </div>
               </div>
-
+// TEST GITHUB UPDATE 2026
               <div className="cafe-hero-photo">
                 {heroImage ? (
                   <img
@@ -3392,9 +3392,9 @@ const [value, setValue] = useState("");
                 <div className="cafe-grid">
                   {visible.map((food) => {
                     const canOrder =
-  Boolean(franchiseId) &&
-  !food.catalogPreview &&
-  food.isAvailable !== false;
+                      Boolean(franchiseId) &&
+                      !food.catalogPreview &&
+                      food.isAvailable !== false;
                     const qty =
                       cart.find(
                         (item) =>
@@ -3403,7 +3403,7 @@ const [value, setValue] = useState("");
 
                     const veg =
                       typeof food.isVeg ===
-                      "boolean"
+                        "boolean"
                         ? food.isVeg
                         : food.isVegetarian;
 
@@ -3442,14 +3442,14 @@ const [value, setValue] = useState("");
 
                             {typeof veg ===
                               "boolean" && (
-                              <i
-                                className={
-                                  veg
-                                    ? "cafe-veg"
-                                    : "cafe-nonveg"
-                                }
-                              />
-                            )}
+                                <i
+                                  className={
+                                    veg
+                                      ? "cafe-veg"
+                                      : "cafe-nonveg"
+                                  }
+                                />
+                              )}
                           </div>
 
                           <p>
@@ -3457,51 +3457,51 @@ const [value, setValue] = useState("");
                             Made with care
                           </p>
 
-                          
-<div className="cafe-food-bottom">
-  <strong>{fmt(food.price)}</strong>
 
-  {!canOrder ? (
-    <button
-      className="cafe-add"
-      type="button"
-      disabled
-      title="A registered cafeteria menu is required"
-    >
-      Preview Only
-    </button>
-  ) : qty > 0 ? (
-    <div className="cafe-qty">
-      <button
-        type="button"
-        onClick={() => changeQty(food, -1)}
-        aria-label="Decrease quantity"
-      >
-        <Minus size={16} />
-      </button>
+                          <div className="cafe-food-bottom">
+                            <strong>{fmt(food.price)}</strong>
 
-      <b>{qty}</b>
+                            {!canOrder ? (
+                              <button
+                                className="cafe-add"
+                                type="button"
+                                disabled
+                                title="A registered cafeteria menu is required"
+                              >
+                                Preview Only
+                              </button>
+                            ) : qty > 0 ? (
+                              <div className="cafe-qty">
+                                <button
+                                  type="button"
+                                  onClick={() => changeQty(food, -1)}
+                                  aria-label="Decrease quantity"
+                                >
+                                  <Minus size={16} />
+                                </button>
 
-      <button
-        type="button"
-        onClick={() => changeQty(food, 1)}
-        disabled={qty >= 50}
-        aria-label="Increase quantity"
-      >
-        <Plus size={16} />
-      </button>
-    </div>
-  ) : (
-    <button
-      className="cafe-add"
-      type="button"
-      onClick={() => changeQty(food, 1)}
-    >
-      <Plus size={16} />
-      Add
-    </button>
-  )}
-</div>
+                                <b>{qty}</b>
+
+                                <button
+                                  type="button"
+                                  onClick={() => changeQty(food, 1)}
+                                  disabled={qty >= 50}
+                                  aria-label="Increase quantity"
+                                >
+                                  <Plus size={16} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                className="cafe-add"
+                                type="button"
+                                onClick={() => changeQty(food, 1)}
+                              >
+                                <Plus size={16} />
+                                Add
+                              </button>
+                            )}
+                          </div>
 
                         </div>
                       </article>
@@ -3566,11 +3566,10 @@ const [value, setValue] = useState("");
                   }) => (
                     <label
                       key={value}
-                      className={`cafe-payment ${
-                        method === value
+                      className={`cafe-payment ${method === value
                           ? "selected"
                           : ""
-                      }`}
+                        }`}
                     >
                       <input
                         type="radio"
@@ -3617,8 +3616,8 @@ const [value, setValue] = useState("");
                   busy ||
                   quantity === 0
                 }
-                
-onClick={() => void placeOrder(method)}
+
+                onClick={() => void placeOrder(method)}
 
               >
                 {busy
@@ -3654,7 +3653,7 @@ onClick={() => void placeOrder(method)}
                   <b>
                     {fmt(
                       item.price *
-                        item.quantity
+                      item.quantity
                     )}
                   </b>
                 </div>
@@ -3698,11 +3697,10 @@ onClick={() => void placeOrder(method)}
             <main className="cafe-status">
               <section className="cafe-panel cafe-status-panel">
                 <div
-                  className={`cafe-status-icon ${
-                    paymentComplete
+                  className={`cafe-status-icon ${paymentComplete
                       ? "paid"
                       : ""
-                  }`}
+                    }`}
                 >
                   {seatConfirmed ? (
                     <CheckCircle2 size={35} />
@@ -3717,24 +3715,24 @@ onClick={() => void placeOrder(method)}
                   {seatConfirmed
                     ? "WAITING FOR ADMIN"
                     : paymentComplete
-                    ? "PAYMENT CONFIRMED"
-                    : "PAYMENT PENDING"}
+                      ? "PAYMENT CONFIRMED"
+                      : "PAYMENT PENDING"}
                 </p>
 
                 <h1>
                   {seatConfirmed
                     ? "Seat saved. Almost ready!"
                     : paymentComplete
-                    ? "Choose your seat"
-                    : "Complete your payment"}
+                      ? "Choose your seat"
+                      : "Complete your payment"}
                 </h1>
 
                 <p className="cafe-subtitle">
                   {seatConfirmed
                     ? "Your seat is saved. The menu will open automatically after admin confirmation."
                     : paymentComplete
-                    ? "Select an available seat. Refreshing this page will keep you here until your seat is confirmed."
-                    : "Complete payment within one minute to continue to seat selection."}
+                      ? "Select an available seat. Refreshing this page will keep you here until your seat is confirmed."
+                      : "Complete payment within one minute to continue to seat selection."}
                 </p>
 
                 <div className="cafe-order-meta">
@@ -3761,83 +3759,83 @@ onClick={() => void placeOrder(method)}
                       : "⏳ Payment pending"}
                   </span>
                 </div>
-                
-{/* =====================================
+
+                {/* =====================================
     UPI QR PAYMENT SCREEN
 ===================================== */}
 
-{!paymentComplete &&
-  activeOrder.method === "Counter UPI" && (
-    <div className="cafe-qr-card">
-      <div className="cafe-panel-icon">
-        <QrCode size={30} />
-      </div>
+                {!paymentComplete &&
+                  activeOrder.method === "Counter UPI" && (
+                    <div className="cafe-qr-card">
+                      <div className="cafe-panel-icon">
+                        <QrCode size={30} />
+                      </div>
 
-      <h2>Scan & Pay</h2>
+                      <h2>Scan & Pay</h2>
 
-      <p className="cafe-subtitle">
-        Scan this QR using any supported UPI app.
-      </p>
+                      <p className="cafe-subtitle">
+                        Scan this QR using any supported UPI app.
+                      </p>
 
-      {upiQrLoading ? (
-        <div className="cafe-qr-loading">
-          <RefreshCw
-            size={28}
-            className="cafe-spin"
-          />
-          <p>Generating your QR code...</p>
-        </div>
-      ) : upiQr?.qrDataUrl ? (
-        <>
-          <img
-            src={upiQr.qrDataUrl}
-            alt="UPI payment QR code"
-            className="cafe-qr-image"
-          />
+                      {upiQrLoading ? (
+                        <div className="cafe-qr-loading">
+                          <RefreshCw
+                            size={28}
+                            className="cafe-spin"
+                          />
+                          <p>Generating your QR code...</p>
+                        </div>
+                      ) : upiQr?.qrDataUrl ? (
+                        <>
+                          <img
+                            src={upiQr.qrDataUrl}
+                            alt="UPI payment QR code"
+                            className="cafe-qr-image"
+                          />
 
-          <h2>{fmt(upiQr.amount)}</h2>
+                          <h2>{fmt(upiQr.amount)}</h2>
 
-          <p className="cafe-subtitle">
-            Pay to: {upiQr.payeeName}
-          </p>
+                          <p className="cafe-subtitle">
+                            Pay to: {upiQr.payeeName}
+                          </p>
 
-          <p className="cafe-subtitle">
-            Order: {upiQr.orderNumber}
-          </p>
-        </>
-      ) : (
-        <div className="cafe-qr-error">
-          <p>
-            {upiQrError ||
-              "QR code could not be loaded."}
-          </p>
+                          <p className="cafe-subtitle">
+                            Order: {upiQr.orderNumber}
+                          </p>
+                        </>
+                      ) : (
+                        <div className="cafe-qr-error">
+                          <p>
+                            {upiQrError ||
+                              "QR code could not be loaded."}
+                          </p>
 
-          <button
-            type="button"
-            className="cafe-primary"
-            onClick={() =>
-              void loadUpiQr(
-                activeOrder.order,
-                activeOrder.key
-              )
-            }
-          >
-            <RefreshCw size={17} />
-            Generate QR / Retry
-          </button>
-        </div>
-      )}
+                          <button
+                            type="button"
+                            className="cafe-primary"
+                            onClick={() =>
+                              void loadUpiQr(
+                                activeOrder.order,
+                                activeOrder.key
+                              )
+                            }
+                          >
+                            <RefreshCw size={17} />
+                            Generate QR / Retry
+                          </button>
+                        </div>
+                      )}
 
-      <div className="cafe-hint">
-        <ShieldCheck size={18} />
+                      <div className="cafe-hint">
+                        <ShieldCheck size={18} />
 
-        After making payment, please provide
-        your transaction reference to the cashier.
-        Seat selection unlocks after admin
-        verifies the payment.
-      </div>
-    </div>
-  )}
+                        After making payment, please provide
+                        your transaction reference to the cashier.
+                        Seat selection unlocks after admin
+                        verifies the payment.
+                      </div>
+                    </div>
+                  )}
 
 
                 {/* PAYMENT TIMER */}
@@ -3861,10 +3859,9 @@ onClick={() => void placeOrder(method)}
                     <div className="cafe-deadline-track">
                       <span
                         style={{
-                          width: `${
-                            (paymentSeconds / 60) *
+                          width: `${(paymentSeconds / 60) *
                             100
-                          }%`,
+                            }%`,
                         }}
                       />
                     </div>
@@ -3876,7 +3873,7 @@ onClick={() => void placeOrder(method)}
                     <ShieldCheck size={19} />
 
                     {activeOrder.method ===
-                    "Online (Razorpay)"
+                      "Online (Razorpay)"
                       ? "Please complete your secure online payment."
                       : "Please pay at the counter. Admin will verify your payment."}
                   </div>
@@ -3884,7 +3881,7 @@ onClick={() => void placeOrder(method)}
 
                 {!paymentComplete &&
                   activeOrder.method ===
-                    "Online (Razorpay)" && (
+                  "Online (Razorpay)" && (
                     <button
                       type="button"
                       className="cafe-secondary cafe-full"
@@ -3963,16 +3960,14 @@ onClick={() => void placeOrder(method)}
                             <button
                               type="button"
                               key={number}
-                              className={`cafe-seat ${
-                                seatChoice ===
-                                number
+                              className={`cafe-seat ${seatChoice ===
+                                  number
                                   ? "chosen"
                                   : ""
-                              } ${
-                                !available
+                                } ${!available
                                   ? "occupied"
                                   : ""
-                              }`}
+                                }`}
                               disabled={
                                 !available ||
                                 busy
@@ -3997,11 +3992,11 @@ onClick={() => void placeOrder(method)}
 
                               <small>
                                 {seatChoice ===
-                                number
+                                  number
                                   ? "Selected"
                                   : available
-                                  ? "Free"
-                                  : "Taken"}
+                                    ? "Free"
+                                    : "Taken"}
                               </small>
                             </button>
                           );
@@ -4017,7 +4012,7 @@ onClick={() => void placeOrder(method)}
 
                       {seats.capacity > 0 &&
                         seats.available.length ===
-                          0 && (
+                        0 && (
                           <p className="cafe-subtitle">
                             All seats are occupied.
                             Please contact staff.
@@ -4059,8 +4054,8 @@ onClick={() => void placeOrder(method)}
                           {busy
                             ? "Confirming..."
                             : seatChoice
-                            ? `Confirm seat ${seatChoice}`
-                            : "Select a seat"}
+                              ? `Confirm seat ${seatChoice}`
+                              : "Select a seat"}
 
                           <ChevronRight
                             size={18}
@@ -4170,7 +4165,7 @@ onClick={() => void placeOrder(method)}
                     (item) =>
                       `${item.quantity}× ${item.name} · ${fmt(
                         item.price *
-                          item.quantity
+                        item.quantity
                       )}`
                   )
                   .join(" • ")}
@@ -4256,7 +4251,7 @@ onClick={() => void placeOrder(method)}
                         <b>
                           {fmt(
                             item.price *
-                              item.quantity
+                            item.quantity
                           )}
                         </b>
 
