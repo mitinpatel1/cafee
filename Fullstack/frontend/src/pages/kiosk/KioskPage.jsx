@@ -3032,12 +3032,14 @@ if (selectedMethod === "Online (Razorpay)") {
       icon: Wallet,
     },
 
-    {
+    
+{
   value: "Counter UPI",
   label: "Scan UPI QR",
-  description: "Tap to generate your payment QR now",
+  description: "Scan QR code to complete your payment",
   icon: QrCode,
-}
+},
+
   ];
 // Payment radio input
 const [value, setValue] = useState("");
