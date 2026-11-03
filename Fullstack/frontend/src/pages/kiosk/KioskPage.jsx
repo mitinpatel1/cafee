@@ -3104,7 +3104,7 @@ export function KioskPage() {
 
     {
       value: "Counter UPI",
-      label: qrEnabled ? "Scan UPI QR" : "UPI at counter",
+      label: qrEnabled ? "Scan UPI QR" : "UPI",
       description: qrEnabled
         ? "Generate an order-specific UPI QR after placing your order"
         : "QR unavailable; cashier verifies counter UPI payment",
