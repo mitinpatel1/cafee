@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { UtensilsCrossed } from 'lucide-react';
 // Food cards display only photos explicitly added by an admin for real dishes.

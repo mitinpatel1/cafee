@@ -1933,6 +1933,11 @@ export function KioskPage() {
   const [search, setSearch] = useState("");
   // Default menu ordering: cheapest items first.
   const [priceSort, setPriceSort] = useState("low-high");
+  const [vegOnly, setVegOnly] = useState(false);
+  const [jainOnly, setJainOnly] = useState(false);
+  const [maxPrice, setMaxPrice] = useState("");
+  const [qrEnabled, setQrEnabled] = useState(false);
+  const [upiQr, setUpiQr] = useState(null);
 
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -2034,6 +2039,7 @@ export function KioskPage() {
         const enabled = !!data.onlineEnabled;
 
         setOnlineEnabled(enabled);
+        setQrEnabled(Boolean(data.qrEnabled));
 
         // Do not overwrite a restored order's original payment method.
         if (!restoredOrder) {
@@ -2124,7 +2130,11 @@ export function KioskPage() {
         `${item.name || ""} ${item.category || ""}`
           .toLowerCase()
           .includes(term);
-      return matchCategory && matchSearch;
+      const matchesVeg = !vegOnly || item.isVeg === true;
+      const matchesJain = !jainOnly || item.isJain === true;
+      const cap = Number(maxPrice);
+      const matchesPrice = maxPrice === "" || (Number.isFinite(cap) && cap >= 0 && Number(item.price) <= cap);
+      return matchCategory && matchSearch && matchesVeg && matchesJain && matchesPrice;
     });
 
     return matchingItems.sort((a, b) => {
@@ -2145,7 +2155,7 @@ export function KioskPage() {
       // Initial value and fallback: Price low to high.
       return priceA - priceB || nameA.localeCompare(nameB);
     });
-  }, [menu, category, search, priceSort]);
+  }, [menu, category, search, priceSort, vegOnly, jainOnly, maxPrice]);
 
   const quantity = cart.reduce(
     (sum, item) =>
@@ -2187,6 +2197,7 @@ export function KioskPage() {
             name: food.name,
             price: Number(food.price),
             quantity: 1,
+            instructions: "",
           },
         ];
       }
@@ -2212,6 +2223,12 @@ export function KioskPage() {
     });
   }
 
+  function updateInstructions(id, instructions) {
+    setCart(previous => previous.map(item => item.id === id
+      ? {...item, instructions: instructions.slice(0, 200)}
+      : item));
+  }
+
   // ============================================
   // RESET KIOSK
   // ============================================
@@ -2235,6 +2252,7 @@ export function KioskPage() {
 
     setActiveOrder(null);
     setSeatChoice(null);
+    setUpiQr(null);
 
     setPaymentSeconds(60);
 
@@ -2470,7 +2488,8 @@ export function KioskPage() {
 
       try {
         const data = await api(
-          `/kiosk/track/${encodeURIComponent(code)}`
+          `/kiosk/orders/${current.order._id}/recover`,
+          { headers: { "x-kiosk-order-key": current.key } }
         );
 
         if (
@@ -2504,6 +2523,14 @@ export function KioskPage() {
         } else if (
           !paid(activeOrderRef.current.order)
         ) {
+          const pending = activeOrderRef.current;
+          // QR payments may be credited late; never reset while a QR is
+          // still within its provider-supplied validity window.
+          if (pending.method === "Counter UPI" && qrEnabled &&
+            (!pending.qrCloseBy || new Date(pending.qrCloseBy).getTime() > Date.now())) {
+            setError("Waiting for verified QR payment or QR expiry. Your order remains saved.");
+            return;
+          }
           reset();
         }
       } catch {
@@ -2521,7 +2548,7 @@ export function KioskPage() {
         timeoutCheckingRef.current = false;
       }
     },
-    [reset]
+    [reset, qrEnabled]
   );
 
   // ============================================
@@ -2537,9 +2564,9 @@ export function KioskPage() {
       return;
     }
 
-    const deadline =
-      activeOrder.createdAtMs +
-      PAYMENT_TIMEOUT;
+    const deadline = activeOrder?.qrCloseBy
+      ? Math.max(activeOrder.createdAtMs + PAYMENT_TIMEOUT, new Date(activeOrder.qrCloseBy).getTime())
+      : activeOrder.createdAtMs + PAYMENT_TIMEOUT;
 
     const tick = () => {
       const remaining = Math.max(
@@ -2569,6 +2596,7 @@ export function KioskPage() {
     activeOrder?.order?._id,
     activeOrder?.createdAtMs,
     activeOrder?.order?.paymentStatus,
+    activeOrder?.qrCloseBy,
     checkPaymentTimeout,
   ]);
 
@@ -2722,6 +2750,7 @@ export function KioskPage() {
             items: cart.map((item) => ({
               menuItemId: item.id,
               quantity: item.quantity,
+              instructions: item.instructions || "",
             })),
           }),
         }
@@ -2779,6 +2808,63 @@ export function KioskPage() {
       setBusy(false);
     }
   }
+
+  // ============================================
+  // DYNAMIC UPI QR: PROVIDER-VERIFIED, NEVER
+  // MARK PAID SIMPLY BECAUSE THE IMAGE IS SHOWN
+  // ============================================
+  const createUpiQr = useCallback(async (order, key) => {
+    if (!qrEnabled) return;
+    try {
+      const response = await api(`/kiosk/orders/${order._id}/upi-qr`, {
+        method: "POST",
+        headers: { "x-kiosk-order-key": key },
+      });
+      if (!/^https:\/\//.test(response.imageUrl || "")) throw new Error("Invalid payment QR URL.");
+      setUpiQr({imageUrl: response.imageUrl, closeBy: response.closeBy});
+      setActiveOrder(current => {
+        if (current?.order?._id !== order._id) return current;
+        const updated = { ...current, qrCloseBy: response.closeBy };
+        activeOrderRef.current = updated;
+        saveKioskOrder(updated);
+        return updated;
+      });
+    } catch (err) { setError(err.message); }
+  }, [qrEnabled]);
+
+  useEffect(() => {
+    if (screen !== "status" || !activeOrder || !qrEnabled ||
+      activeOrder.method !== "Counter UPI" || paid(activeOrder.order)) return;
+    if (upiQr?.imageUrl) return;
+    void createUpiQr(activeOrder.order, activeOrder.key);
+  }, [screen, activeOrder?.order?._id, activeOrder?.order?.paymentStatus, activeOrder?.method, activeOrder?.qrCloseBy, activeOrder?.key, qrEnabled, upiQr?.imageUrl, createUpiQr]);
+
+  // Recover QR capture every 12s; public tracking polling has no access
+  // to provider payment details, so signed order key is required.
+  useEffect(() => {
+    if (screen !== "status" || !qrEnabled || !activeOrder ||
+      activeOrder.method !== "Counter UPI" || paid(activeOrder.order)) return;
+    const check = async () => {
+      const current = activeOrderRef.current;
+      if (!current || current.order.paymentStatus === "Paid") return;
+      try {
+        const response = await api(`/kiosk/orders/${current.order._id}/recover`, {
+          headers:{"x-kiosk-order-key":current.key},
+        });
+        if (response?.order?.paymentStatus === "Paid") {
+          setActiveOrder(old => {
+            if (!old || old.order._id !== current.order._id) return old;
+            const updated={...old,order:{...old.order,...response.order}};
+            activeOrderRef.current=updated;
+            saveKioskOrder(updated);
+            return updated;
+          });
+        }
+      } catch { /* Retain current order on network/provider error. */ }
+    };
+    const timer=setInterval(check,12000);
+    return ()=>clearInterval(timer);
+  }, [screen,qrEnabled,activeOrder?.order?._id,activeOrder?.method,activeOrder?.order?.paymentStatus]);
 
   // ============================================
   // RETRY ONLINE PAYMENT
@@ -3216,6 +3302,19 @@ export function KioskPage() {
 
               {/* CATEGORIES */}
 
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"15px 0 6px"}}>
+                <label style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13}}>
+                  <input type="checkbox" checked={vegOnly} onChange={(e)=>setVegOnly(e.target.checked)} /> Veg only
+                </label>
+                <label style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13}}>
+                  <input type="checkbox" checked={jainOnly} onChange={(e)=>setJainOnly(e.target.checked)} /> Jain only
+                </label>
+                <label style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13}}>
+                  Maximum price ₹
+                  <input type="number" min="0" step="1" value={maxPrice} onChange={(e)=>setMaxPrice(e.target.value)} placeholder="Any" style={{width:92,padding:"8px",border:"1px solid #e5ebe4",borderRadius:9}} />
+                </label>
+                <button type="button" onClick={()=>{setVegOnly(false);setJainOnly(false);setMaxPrice("");}} style={{padding:"8px 12px",border:"1px solid #e5ebe4",borderRadius:9,background:"white",color:"#173f35"}}>Clear filters</button>
+              </div>
               <div className="cafe-categories">
                 {categories.map((cat) => (
                   <button
@@ -3320,6 +3419,9 @@ export function KioskPage() {
                           <p>
                             Freshly prepared •
                             Made with care
+                            {food.isJain ? " · Jain-friendly" : ""}
+                            {Array.isArray(food.allergens) && food.allergens.length > 0
+                              ? ` · Contains: ${food.allergens.join(", ")}` : ""}
                           </p>
 
                           <div className="cafe-food-bottom">
@@ -3631,9 +3733,7 @@ export function KioskPage() {
                     </div>
 
                     <strong>
-                      {`00:${String(
-                        paymentSeconds
-                      ).padStart(2, "0")}`}
+                      {`${String(Math.floor(paymentSeconds / 60)).padStart(2, "0")}:${String(paymentSeconds % 60).padStart(2, "0")}`}
                     </strong>
 
                     <div className="cafe-deadline-track">
@@ -3647,6 +3747,14 @@ export function KioskPage() {
                         }}
                       />
                     </div>
+                  </div>
+                )}
+
+                {!paymentComplete && upiQr?.imageUrl && activeOrder?.method === "Counter UPI" && (
+                  <div className="cafe-hint" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+                    <strong>Scan this unique UPI QR to pay securely</strong>
+                    <img src={upiQr.imageUrl} alt="OfficeBite order-specific UPI payment QR" style={{width:220,maxWidth:"100%",aspectRatio:"1",objectFit:"contain"}} />
+                    <small>Payment unlocks your seat only after Razorpay confirms capture. QR expiry may exceed 60 seconds.</small>
                   </div>
                 )}
 
@@ -4015,6 +4123,13 @@ export function KioskPage() {
                           {" "}
                           each
                         </small>
+                        <label style={{display:"grid",gap:5,fontSize:11,color:"#74867c",marginTop:10}}>
+                          Special instructions (optional)
+                          <textarea value={item.instructions||""} maxLength={200}
+                            placeholder="e.g. Less spicy, no onion"
+                            onChange={e=>updateInstructions(item.id,e.target.value)}
+                            style={{width:"100%",maxWidth:240,padding:9,borderRadius:9,border:"1px solid #e5ebe4",resize:"vertical",fontSize:12}}/>
+                        </label>
                       </div>
 
                       <div className="cafe-cart-right">
@@ -4122,6 +4237,7 @@ export function KioskPage() {
       <footer className="cafe-footer">
         © OfficeBite · Fresh food,
         happy moments
+        {screen === "menu" && <span> · <a href="/order-status" style={{color:"#173f35"}}>Track an order</a> · <a href="/feedback" style={{color:"#173f35"}}>Feedback</a></span>}
       </footer>
     </div>
   );
