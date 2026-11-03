@@ -7,9 +7,9 @@ import React, {
   useState,
 } from "react";
 
-
 import {
   Armchair,
+  ArrowDownUp,
   ArrowLeft,
   Check,
   CheckCircle2,
@@ -27,29 +27,12 @@ import {
   Utensils,
   Wallet,
   X,
-  QrCode,
-  ExternalLink,
 } from "lucide-react";
 
-
-// ======================================================
-// OFFICEBITE KIOSK
-// COMPLETE JSX + EMBEDDED CSS
-// NO SEPARATE CSS FILE REQUIRED
-// ======================================================
-
-const PAYMENT_TIMEOUT_MS = 60 * 1000;
-
-const SESSION_KEY = "officebite_active_guest_order_v3";
-
-const COLORS = {
-  forest: "#173f35",
-  orange: "#ee7843",
-};
-
-// ======================================================
-// COMPLETE RESPONSIVE CSS
-// ======================================================
+// ============================================
+// OFFICEBITE STYLING
+// CSS IS INSIDE THIS JSX FILE
+// ============================================
 
 const KIOSK_STYLES = String.raw`
 .cafe-kiosk {
@@ -69,11 +52,15 @@ const KIOSK_STYLES = String.raw`
   display: flex;
   flex-direction: column;
   overflow-x: clip;
-  background: radial-gradient(
-    circle at 6% 5%,
-    #fff0dd,
-    transparent 34%
-  ), var(--cream);
+
+  background:
+    radial-gradient(
+      circle at 6% 5%,
+      #fff0dd,
+      transparent 34%
+    ),
+    var(--cream);
+
   color: var(--ink);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
@@ -96,7 +83,7 @@ const KIOSK_STYLES = String.raw`
 }
 
 .cafe-kiosk button:disabled {
-  opacity: .5;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -115,18 +102,21 @@ const KIOSK_STYLES = String.raw`
 }
 
 .cafe-container {
-  max-width: 1360px;
   width: 100%;
+  max-width: 1360px;
   margin: 0 auto;
   padding: 0 25px;
 }
 
-/* HEADER */
+/* ============================================
+   HEADER
+============================================ */
 
 .cafe-header {
   position: sticky;
   top: 0;
   z-index: 30;
+
   background: rgba(255,255,255,.97);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
@@ -136,8 +126,8 @@ const KIOSK_STYLES = String.raw`
 .cafe-header-inner {
   height: 82px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 15px;
 }
 
@@ -157,9 +147,9 @@ const KIOSK_STYLES = String.raw`
   height: 47px;
   display: grid;
   place-items: center;
-  background: var(--forest);
-  color: #fff;
   border-radius: 15px;
+  background: var(--forest);
+  color: white;
 }
 
 .cafe-logo small {
@@ -208,12 +198,18 @@ const KIOSK_STYLES = String.raw`
   border-radius: 14px;
   background: white;
   color: var(--forest);
+  transition: .2s ease;
+}
+
+.cafe-cart-icon:hover {
+  background: #f0f7f0;
+  transform: translateY(-2px);
 }
 
 .cafe-cart-icon b {
   position: absolute;
-  top: -7px;
   right: -7px;
+  top: -7px;
   min-width: 22px;
   height: 22px;
   padding: 0 5px;
@@ -226,7 +222,9 @@ const KIOSK_STYLES = String.raw`
   font-size: 10px;
 }
 
-/* ORDER PROGRESS */
+/* ============================================
+   ORDER PROGRESS
+============================================ */
 
 .cafe-progress {
   display: flex;
@@ -253,6 +251,7 @@ const KIOSK_STYLES = String.raw`
   place-items: center;
   background: #e9eee8;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .cafe-progress .active {
@@ -260,17 +259,17 @@ const KIOSK_STYLES = String.raw`
 }
 
 .cafe-progress .active span {
-  background: var(--orange);
   color: white;
+  background: var(--orange);
 }
 
 .cafe-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   margin-bottom: 18px;
   padding: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   color: #a33b25;
   background: #fff0e9;
   border: 1px solid #f3cdbb;
@@ -280,16 +279,22 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-error button {
   border: 0;
-  background: transparent;
   color: inherit;
+  background: transparent;
 }
 
-/* HERO */
+/* ============================================
+   HERO SECTION
+============================================ */
+
+.cafe-menu-page {
+  animation: cafeFade .35s ease;
+}
 
 .cafe-hero {
+  min-height: 320px;
   display: grid;
   grid-template-columns: 1.12fr .88fr;
-  min-height: 320px;
   overflow: hidden;
   background: linear-gradient(
     115deg,
@@ -361,6 +366,18 @@ const KIOSK_STYLES = String.raw`
   background: #477764;
 }
 
+.cafe-hero-photo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    90deg,
+    #173f35,
+    transparent 70%
+  );
+}
+
 .cafe-hero-photo img {
   position: absolute;
   inset: 0;
@@ -369,22 +386,11 @@ const KIOSK_STYLES = String.raw`
   object-fit: cover;
 }
 
-.cafe-hero-photo::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    #173f35,
-    transparent 70%
-  );
-}
-
 .cafe-hero-placeholder {
   height: 100%;
   display: grid;
   place-items: center;
-  font-size: 120px;
+  font-size: 130px;
 }
 
 .cafe-photo-badge {
@@ -403,13 +409,16 @@ const KIOSK_STYLES = String.raw`
   font-size: 12px;
   font-weight: 900;
   transform: rotate(9deg);
+  box-shadow: 0 8px 23px #0003;
 }
 
 .cafe-photo-badge strong {
   font-size: 18px;
 }
 
-/* MENU */
+/* ============================================
+   MENU SECTION
+============================================ */
 
 .cafe-menu-section {
   padding: 42px 0 120px;
@@ -417,8 +426,8 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-section-head {
   display: flex;
-  justify-content: space-between;
   align-items: flex-end;
+  justify-content: space-between;
   gap: 16px;
   margin-bottom: 23px;
 }
@@ -456,12 +465,13 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-tools {
   display: grid;
-  grid-template-columns: .8fr 1.2fr;
+  grid-template-columns: minmax(0,.85fr) minmax(0,1.25fr) minmax(0,.85fr);
   gap: 15px;
 }
 
 .cafe-location,
-.cafe-search {
+.cafe-search,
+.cafe-price-sort {
   height: 52px;
   display: flex;
   align-items: center;
@@ -473,8 +483,15 @@ const KIOSK_STYLES = String.raw`
   color: #6b8979;
 }
 
+.cafe-location:focus-within,
+.cafe-search:focus-within,
+.cafe-price-sort:focus-within {
+  border-color: var(--orange);
+}
+
 .cafe-location select,
-.cafe-search input {
+.cafe-search input,
+.cafe-price-sort select {
   min-width: 0;
   width: 100%;
   border: 0;
@@ -484,11 +501,28 @@ const KIOSK_STYLES = String.raw`
   font-size: 14px;
 }
 
+.cafe-search input::placeholder {
+  color: #a1b0a5;
+}
+
+.cafe-price-sort {
+  background: #f2f8f1;
+  color: var(--forest);
+  border-color: #cfe1d2;
+}
+
+.cafe-price-sort select {
+  color: var(--forest);
+  font-weight: 750;
+  cursor: pointer;
+}
+
 .cafe-categories {
   display: flex;
   align-items: center;
   gap: 10px;
   margin: 24px 0 27px;
+  padding: 3px 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -506,15 +540,23 @@ const KIOSK_STYLES = String.raw`
   color: #708579;
   font-size: 13px;
   font-weight: 800;
+  white-space: nowrap;
+  transition: .2s;
 }
 
-.cafe-categories button.selected {
+.cafe-categories button:hover {
+  background: #eff6ed;
+}
+
+.cafe-categories .selected {
   background: var(--forest);
   color: white;
   border-color: var(--forest);
 }
 
-/* FOOD CARDS */
+/* ============================================
+   FOOD CARDS
+============================================ */
 
 .cafe-grid {
   display: grid;
@@ -529,7 +571,7 @@ const KIOSK_STYLES = String.raw`
   border: 1px solid #e8ede6;
   border-radius: 20px;
   box-shadow: 0 5px 22px #173f350b;
-  transition: transform .25s,box-shadow .25s;
+  transition: transform .25s, box-shadow .25s;
 }
 
 .cafe-food-card:hover {
@@ -550,11 +592,11 @@ const KIOSK_STYLES = String.raw`
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform .3s;
+  transition: transform .35s;
 }
 
 .cafe-food-card:hover img {
-  transform: scale(1.05);
+  transform: scale(1.06);
 }
 
 .cafe-food-emoji {
@@ -634,16 +676,18 @@ const KIOSK_STYLES = String.raw`
   color: var(--forest);
   font-size: 19px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .cafe-add {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 9px 13px;
   color: white;
   background: var(--orange);
-  border: 0;
+  border: none;
   border-radius: 10px;
   font-size: 12px;
   font-weight: 850;
@@ -690,25 +734,29 @@ const KIOSK_STYLES = String.raw`
 }
 
 .cafe-menu-footnote {
-  margin-top: 34px;
+  margin: 34px 0 0;
   color: #98aa9a;
   text-align: center;
   font-size: 12px;
 }
 
-/* FLOATING CART */
+/* ============================================
+   FLOATING CART
+============================================ */
 
 .cafe-floating {
   position: fixed;
   z-index: 25;
-  left: 50%;
   bottom: 22px;
+  left: 50%;
   transform: translateX(-50%);
+
   width: min(830px,calc(100vw - 30px));
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 13px 20px;
+
   color: white;
   background: var(--forest);
   border: 0;
@@ -724,11 +772,12 @@ const KIOSK_STYLES = String.raw`
   place-items: center;
   background: #ffffff23;
   border-radius: 12px;
+  flex-shrink: 0;
 }
 
 .cafe-floating-description {
-  flex: 1;
   min-width: 0;
+  flex: 1;
   display: grid;
   gap: 4px;
 }
@@ -751,7 +800,9 @@ const KIOSK_STYLES = String.raw`
   white-space: nowrap;
 }
 
-/* CART DRAWER */
+/* ============================================
+   CART DRAWER
+============================================ */
 
 .cafe-overlay {
   position: fixed;
@@ -773,6 +824,7 @@ const KIOSK_STYLES = String.raw`
 .cafe-drawer {
   position: relative;
   width: min(450px,100%);
+  height: 100vh;
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -818,6 +870,7 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-cart-line {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 18px 0;
@@ -862,7 +915,7 @@ const KIOSK_STYLES = String.raw`
 .cafe-drawer-total {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  align-items: center;
   margin: 15px 0;
   padding: 17px 0;
   border-top: 1px dashed var(--line);
@@ -874,7 +927,9 @@ const KIOSK_STYLES = String.raw`
   color: var(--forest);
 }
 
-/* BUTTONS */
+/* ============================================
+   BUTTONS
+============================================ */
 
 .cafe-primary,
 .cafe-secondary {
@@ -887,7 +942,7 @@ const KIOSK_STYLES = String.raw`
   border-radius: 12px;
   font-size: 14px;
   font-weight: 850;
-  transition: .2s;
+  transition: .2s ease;
 }
 
 .cafe-primary {
@@ -904,6 +959,10 @@ const KIOSK_STYLES = String.raw`
   color: var(--forest);
   background: #eff5ed;
   border: 1px solid #dce8dd;
+}
+
+.cafe-secondary:hover:not(:disabled) {
+  background: #e4f0e3;
 }
 
 .cafe-full {
@@ -923,7 +982,9 @@ const KIOSK_STYLES = String.raw`
   font-weight: 750;
 }
 
-/* CHECKOUT */
+/* ============================================
+   CHECKOUT
+============================================ */
 
 .cafe-flow {
   display: grid;
@@ -1002,6 +1063,7 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-payment:focus-within {
   outline: 3px solid #f5c9a3;
+  outline-offset: 2px;
 }
 
 .cafe-payment-icon {
@@ -1055,6 +1117,10 @@ const KIOSK_STYLES = String.raw`
   text-align: left;
 }
 
+.cafe-hint svg {
+  flex-shrink: 0;
+}
+
 .cafe-summary h2 {
   margin-bottom: 26px;
 }
@@ -1070,6 +1136,7 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-summary-row b {
   color: var(--forest);
+  white-space: nowrap;
 }
 
 .cafe-summary-total {
@@ -1088,74 +1155,10 @@ const KIOSK_STYLES = String.raw`
   color: var(--forest);
   font-size: 25px;
 }
-  
-/* ========================================
-   UPI QR PAYMENT UI
-======================================== */
 
-.cafe-qr-card {
-  max-width: 460px;
-  margin: 25px auto;
-  padding: 28px;
-  background: #ffffff;
-  border: 1px solid #e2eae2;
-  border-radius: 22px;
-  box-shadow: 0 10px 30px #173f3510;
-  text-align: center;
-}
-
-.cafe-qr-card .cafe-panel-icon {
-  margin: 0 auto 18px;
-}
-
-.cafe-qr-card h2 {
-  color: #173f35;
-  font-size: 25px;
-  font-weight: 900;
-}
-
-.cafe-qr-image {
-  display: block;
-  width: 100%;
-  max-width: 280px;
-  height: auto;
-  padding: 12px;
-  margin: 22px auto;
-  background: #fff;
-  border: 2px solid #e5ebe4;
-  border-radius: 18px;
-}
-
-.cafe-qr-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 38px 12px;
-  color: #173f35;
-}
-
-.cafe-qr-error {
-  padding: 22px 10px;
-  color: #b44430;
-}
-
-.cafe-qr-error p {
-  margin-bottom: 17px;
-}
-
-@media (max-width: 600px) {
-  .cafe-qr-card {
-    padding: 18px;
-  }
-
-  .cafe-qr-image {
-    max-width: 240px;
-  }
-}
-
-
-/* ORDER STATUS */
+/* ============================================
+   PAYMENT STATUS
+============================================ */
 
 .cafe-status {
   max-width: 875px;
@@ -1164,6 +1167,10 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-status-panel {
   text-align: center;
+}
+
+.cafe-status-panel > h1 {
+  font-size: 35px;
 }
 
 .cafe-status-panel > .cafe-subtitle {
@@ -1189,6 +1196,7 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-order-meta {
   display: flex;
+  align-items: center;
   justify-content: center;
   flex-wrap: wrap;
   gap: 15px;
@@ -1213,7 +1221,9 @@ const KIOSK_STYLES = String.raw`
   color: #a46d1d;
 }
 
-/* PAYMENT TIMER */
+/* ============================================
+   PAYMENT COUNTDOWN
+============================================ */
 
 .cafe-deadline {
   max-width: 500px;
@@ -1262,7 +1272,9 @@ const KIOSK_STYLES = String.raw`
   transition: width .5s linear;
 }
 
-/* SEAT SELECTION */
+/* ============================================
+   SEAT SELECTION
+============================================ */
 
 .cafe-seat-section {
   margin-top: 28px;
@@ -1339,6 +1351,7 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-seat {
   min-height: 91px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1348,11 +1361,12 @@ const KIOSK_STYLES = String.raw`
   color: #198754;
   border: 1.5px solid #bbe4c7;
   border-radius: 14px;
-  transition: .2s;
+  transition: .2s ease;
 }
 
 .cafe-seat:hover:not(:disabled) {
   transform: translateY(-3px);
+  background: #e1f7e8;
 }
 
 .cafe-seat strong {
@@ -1413,6 +1427,15 @@ const KIOSK_STYLES = String.raw`
   margin: 0;
   color: #5f806a;
   font-size: 13px;
+  text-align: center;
+}
+
+.cafe-seat-success small {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #6c8975;
+  text-align: center;
 }
 
 .cafe-tracking {
@@ -1439,12 +1462,15 @@ const KIOSK_STYLES = String.raw`
   color: #8ba393;
   font-size: 10px;
   font-weight: 900;
+  letter-spacing: 1.5px;
 }
 
 .cafe-tracking strong {
   overflow-wrap: anywhere;
+  color: var(--forest);
   font-family: monospace;
   font-size: 16px;
+  letter-spacing: 1px;
 }
 
 .cafe-footer {
@@ -1459,15 +1485,33 @@ const KIOSK_STYLES = String.raw`
   animation: cafeSpin 1s linear infinite;
 }
 
-/* RESPONSIVE */
+/* ============================================
+   RESPONSIVENESS
+============================================ */
 
-@media (max-width:1100px) {
+@media (max-width: 1100px) {
   .cafe-grid {
     grid-template-columns: repeat(3,minmax(0,1fr));
   }
+
+  .cafe-hero-copy {
+    padding-left: 35px;
+  }
 }
 
-@media (max-width:850px) {
+@media (max-width: 850px) {
+  .cafe-tools {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cafe-price-sort {
+    grid-column: 1 / -1;
+  }
+
+  .cafe-container {
+    padding: 0 19px;
+  }
+
   .cafe-grid {
     grid-template-columns: repeat(3,minmax(0,1fr));
     gap: 14px;
@@ -1475,6 +1519,7 @@ const KIOSK_STYLES = String.raw`
 
   .cafe-flow {
     grid-template-columns: 1fr;
+    max-width: 620px;
   }
 
   .cafe-seat-grid {
@@ -1486,7 +1531,7 @@ const KIOSK_STYLES = String.raw`
   }
 }
 
-@media (max-width:650px) {
+@media (max-width: 650px) {
   .cafe-container {
     padding: 0 14px;
   }
@@ -1497,11 +1542,16 @@ const KIOSK_STYLES = String.raw`
 
   .cafe-logo {
     font-size: 23px;
+    gap: 9px;
   }
 
   .cafe-logo-icon {
     width: 41px;
     height: 41px;
+  }
+
+  .cafe-logo small {
+    font-size: 7px;
   }
 
   .cafe-live {
@@ -1510,6 +1560,7 @@ const KIOSK_STYLES = String.raw`
 
   .cafe-progress {
     justify-content: space-between;
+    flex-wrap: nowrap;
     gap: 5px;
     margin: 17px 0;
     font-size: 9px;
@@ -1546,9 +1597,16 @@ const KIOSK_STYLES = String.raw`
     padding-top: 32px;
   }
 
+  .cafe-section-head h2 {
+    font-size: 27px;
+  }
+
   .cafe-tools {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+  .cafe-price-sort {
+    grid-column: auto;
   }
 
   .cafe-grid {
@@ -1572,6 +1630,15 @@ const KIOSK_STYLES = String.raw`
     font-size: 16px;
   }
 
+  .cafe-qty {
+    gap: 4px;
+  }
+
+  .cafe-qty button {
+    width: 26px;
+    height: 27px;
+  }
+
   .cafe-flow,
   .cafe-status {
     margin: 20px 0 65px;
@@ -1581,7 +1648,8 @@ const KIOSK_STYLES = String.raw`
     padding: 23px;
   }
 
-  .cafe-panel h1 {
+  .cafe-panel h1,
+  .cafe-status-panel > h1 {
     font-size: 29px;
   }
 
@@ -1623,9 +1691,14 @@ const KIOSK_STYLES = String.raw`
   }
 }
 
-@media (max-width:400px) {
+@media (max-width: 400px) {
   .cafe-hero h1 {
     font-size: 33px;
+  }
+
+  .cafe-hero-features {
+    font-size: 10px;
+    gap: 9px;
   }
 
   .cafe-food-photo {
@@ -1640,12 +1713,20 @@ const KIOSK_STYLES = String.raw`
     flex-wrap: wrap;
   }
 
+  .cafe-food-info {
+    padding: 10px;
+  }
+
   .cafe-seat-heading {
     flex-wrap: wrap;
   }
 
   .cafe-tracking strong {
     font-size: 12px;
+  }
+
+  .cafe-deadline > strong {
+    font-size: 35px;
   }
 }
 
@@ -1655,7 +1736,19 @@ const KIOSK_STYLES = String.raw`
   }
 }
 
-@media (prefers-reduced-motion:reduce) {
+@keyframes cafeFade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
   .cafe-kiosk *,
   .cafe-kiosk *::before,
   .cafe-kiosk *::after {
@@ -1665,91 +1758,39 @@ const KIOSK_STYLES = String.raw`
 }
 `;
 
-// ======================================================
+// ============================================
 // HELPERS
-// ======================================================
+// ============================================
+
+const PAYMENT_TIMEOUT = 60_000;
 
 const fmt = (value) =>
   `₹${Number(value || 0).toFixed(2)}`;
 
-const isPaid = (order) =>
+const paid = (order) =>
   order?.paymentStatus === "Paid";
 
 const hasSeat = (order) =>
   Number.isInteger(Number(order?.seatNumber)) &&
   Number(order?.seatNumber) > 0;
 
-const ADMIN_CONFIRMED_STATUSES = [
-  "Confirmed",
-  "Preparing",
-  "Ready",
-  "Picked Up",
-];
-
-function categoryEmoji(category = "") {
-  if (/breakfast/i.test(category)) return "🥪";
-  if (/lunch/i.test(category)) return "🍛";
-  if (/snack/i.test(category)) return "🍟";
-  if (/beverage|drink/i.test(category)) return "🥤";
+function categoryEmoji(name = "") {
+  if (/breakfast/i.test(name)) return "🥪";
+  if (/lunch/i.test(name)) return "🍛";
+  if (/snack/i.test(name)) return "🍟";
+  if (/beverage|drink/i.test(name)) return "🥤";
   return "🍽️";
 }
 
-// ======================================================
-// SESSION STORAGE
-// REFRESH KE BAAD CURRENT ORDER RESTORE
-// ======================================================
-
-function readSavedKioskOrder() {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-
-    if (!raw) return null;
-
-    const saved = JSON.parse(raw);
-
-    if (
-      !saved?.order?._id ||
-      !saved?.order?.trackingCode ||
-      !saved?.key ||
-      !saved?.createdAtMs
-    ) {
-      sessionStorage.removeItem(SESSION_KEY);
-      return null;
-    }
-
-    return saved;
-  } catch {
-    return null;
-  }
-}
-
-function saveKioskOrder(value) {
-  if (typeof window === "undefined") return;
-
-  try {
-    if (value) {
-      sessionStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify(value)
-      );
-    } else {
-      sessionStorage.removeItem(SESSION_KEY);
-    }
-  } catch {
-    // Storage can be blocked in some browser modes.
-  }
-}
-
-// ======================================================
-// API HELPER
-// ======================================================
+// ============================================
+// API REQUEST HELPER
+// ============================================
 
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     cache: "no-store",
     ...options,
+
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -1770,9 +1811,9 @@ async function api(path, options = {}) {
   return data;
 }
 
-// ======================================================
-// RAZORPAY LOADER
-// ======================================================
+// ============================================
+// RAZORPAY SCRIPT
+// ============================================
 
 let razorpayScriptPromise;
 
@@ -1784,18 +1825,20 @@ function loadRazorpay() {
   if (!razorpayScriptPromise) {
     razorpayScriptPromise = new Promise(
       (resolve, reject) => {
-        const script =
-          document.createElement("script");
+        const script = document.createElement("script");
 
         script.src =
           "https://checkout.razorpay.com/v1/checkout.js";
 
         script.async = true;
+
         script.onload = resolve;
 
         script.onerror = () =>
           reject(
-            new Error("Payment gateway could not load.")
+            new Error(
+              "Payment gateway could not load."
+            )
           );
 
         document.head.appendChild(script);
@@ -1809,21 +1852,73 @@ function loadRazorpay() {
   return razorpayScriptPromise;
 }
 
-// ======================================================
+
+// ============================================
+// KEEP THE CURRENT GUEST ORDER ON PAGE REFRESH
+// sessionStorage persists in the SAME browser tab
+// until admin confirms an order or it is cancelled.
+// ============================================
+
+const KIOSK_SESSION_KEY = "officebite_active_guest_order_v3";
+
+function readSavedKioskOrder() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(KIOSK_SESSION_KEY);
+    if (!raw) return null;
+
+    const saved = JSON.parse(raw);
+    const order = saved?.order;
+
+    const valid =
+      typeof order?._id === "string" &&
+      /^[0-9a-f]{24}$/i.test(order._id) &&
+      typeof order?.trackingCode === "string" &&
+      /^[0-9A-F]{16}$/i.test(order.trackingCode) &&
+      typeof saved?.key === "string" &&
+      /^[0-9a-f]{64}$/i.test(saved.key) &&
+      Number.isFinite(saved.createdAtMs) &&
+      saved.createdAtMs > 0 &&
+      saved.createdAtMs <= Date.now() + PAYMENT_TIMEOUT;
+
+    if (!valid) {
+      window.sessionStorage.removeItem(KIOSK_SESSION_KEY);
+      return null;
+    }
+
+    return saved;
+  } catch {
+    try {
+      window.sessionStorage.removeItem(KIOSK_SESSION_KEY);
+    } catch {}
+    return null;
+  }
+}
+
+function saveKioskOrder(value) {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) {
+      window.sessionStorage.setItem(
+        KIOSK_SESSION_KEY,
+        JSON.stringify(value)
+      );
+    } else {
+      window.sessionStorage.removeItem(KIOSK_SESSION_KEY);
+    }
+  } catch {
+    // Some private-browser settings block storage.
+  }
+}
+
+// ============================================
 // MAIN KIOSK COMPONENT
-// ======================================================
+// ============================================
 
 export function KioskPage() {
-  // ----------------------------------------------------
-  // RESTORE PREVIOUS ORDER IMMEDIATELY
-  // ----------------------------------------------------
-
-  const [restoredOrder] = useState(
-    readSavedKioskOrder
-  );
-
+  const [restoredOrder] = useState(readSavedKioskOrder);
   const [franchises, setFranchises] = useState([]);
-
   const [franchiseId, setFranchiseId] = useState(
     restoredOrder?.franchiseId || ""
   );
@@ -1836,11 +1931,14 @@ export function KioskPage() {
 
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
+  // Default menu ordering: cheapest items first.
+  const [priceSort, setPriceSort] = useState("low-high");
 
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
 
   // menu | checkout | status
+  // An active guest order always reopens after F5.
   const [screen, setScreen] = useState(
     restoredOrder ? "status" : "menu"
   );
@@ -1862,80 +1960,55 @@ export function KioskPage() {
   const [seatChoice, setSeatChoice] =
     useState(null);
 
-  const [paymentSeconds, setPaymentSeconds] =
-    useState(() => {
-      if (!restoredOrder) return 60;
-
-      const elapsed =
-        Date.now() - restoredOrder.createdAtMs;
-
-      return Math.max(
-        0,
-        Math.ceil(
-          (PAYMENT_TIMEOUT_MS - elapsed) / 1000
+  const [paymentSeconds, setPaymentSeconds] = useState(() =>
+    restoredOrder
+      ? Math.max(
+          0,
+          Math.ceil(
+            (restoredOrder.createdAtMs + PAYMENT_TIMEOUT - Date.now()) /
+              1000
+          )
         )
-      );
-    });
+      : 60
+  );
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const [upiQr, setUpiQr] = useState(null);
-  const [upiQrLoading, setUpiQrLoading] = useState(false);
-  const [upiQrError, setUpiQrError] = useState("");
-
-
   const lock = useRef(false);
-
   const activeOrderRef = useRef(restoredOrder);
-
   const gatewayRef = useRef(null);
-
   const timeoutCheckingRef = useRef(false);
-
   const lastTimeoutAttemptRef = useRef(0);
-
-  // ====================================================
-  // SAVE ORDER WHEN IT CHANGES
-  // ====================================================
 
   useEffect(() => {
     activeOrderRef.current = activeOrder;
+  }, [activeOrder]);
 
+  // Preserve the order (and guest key) across browser refreshes.
+  // A PAID order is never cleared just because seat selection is pending.
+  useEffect(() => {
     if (screen === "status" && activeOrder) {
       saveKioskOrder(activeOrder);
     }
   }, [screen, activeOrder]);
 
-  // ====================================================
-  // SAVE ORDER BEFORE REFRESH / TAB CLOSE
-  // ====================================================
-
+  // Also persist synchronously on pagehide (F5 / browser refresh).
   useEffect(() => {
-    function preserveOrder() {
+    const preserveOnRefresh = () => {
       if (activeOrderRef.current) {
-        saveKioskOrder(
-          activeOrderRef.current
-        );
+        saveKioskOrder(activeOrderRef.current);
       }
-    }
-
-    window.addEventListener(
-      "pagehide",
-      preserveOrder
-    );
-
-    return () => {
-      window.removeEventListener(
-        "pagehide",
-        preserveOrder
-      );
     };
+
+    window.addEventListener("pagehide", preserveOnRefresh);
+    return () =>
+      window.removeEventListener("pagehide", preserveOnRefresh);
   }, []);
 
-  // ====================================================
-  // LOAD FRANCHISES
-  // ====================================================
+  // ============================================
+  // LOAD FRANCHISES AND PAYMENT CONFIG
+  // ============================================
 
   useEffect(() => {
     let mounted = true;
@@ -1947,149 +2020,132 @@ export function KioskPage() {
         const items = data.franchises || [];
 
         setFranchises(items);
-
-        setFranchiseId((current) =>
-          current || items[0]?._id || ""
-        );
+        // Keep the franchise of the active guest order after F5.
+        setFranchiseId((previous) => previous || items[0]?._id || "");
       })
       .catch((err) => {
-        if (mounted) {
-          setError(err.message);
-        }
+        if (mounted) setError(err.message);
       });
 
     api("/kiosk/config")
       .then((data) => {
         if (!mounted) return;
 
-        const enabled = Boolean(
-          data.onlineEnabled
-        );
+        const enabled = !!data.onlineEnabled;
 
         setOnlineEnabled(enabled);
 
-        if (!activeOrderRef.current) {
+        // Do not overwrite a restored order's original payment method.
+        if (!restoredOrder) {
           setMethod(
-            enabled
-              ? "Online (Razorpay)"
-              : "Counter Cash"
+            enabled ? "Online (Razorpay)" : "Counter Cash"
           );
         }
       })
-      .catch(() => { });
+      .catch(() => {});
 
     return () => {
       mounted = false;
     };
   }, []);
 
-
   // ============================================
-  // LOAD MENU — REAL MENU OR CATALOG PREVIEW
+  // LOAD MENU
   // ============================================
 
   useEffect(() => {
     let mounted = true;
 
     setCart([]);
-    setMenu([]);
+
+    if (!franchiseId) {
+      setMenu([]);
+      setLoading(false);
+
+      return;
+    }
+
     setLoading(true);
 
-    const loadMenu = async () => {
-      try {
-        const endpoint = franchiseId
-          ? `/menu?franchiseId=${encodeURIComponent(
-            franchiseId
-          )}&isAvailable=true`
-          : "/menu?isAvailable=true";
-
-        const response = await api(endpoint);
-
-        let items = Array.isArray(response.items)
-          ? response.items
-          : [];
-
-        // If a selected franchise has no real menu yet,
-        // show the default catalog as a preview.
-        const realItems = items.filter(
-          (item) => !item.catalogPreview
-        );
-
-        if (franchiseId && realItems.length === 0) {
-          const preview = await api(
-            "/menu?isAvailable=true"
-          );
-
-          items = Array.isArray(preview.items)
-            ? preview.items
-            : [];
-        }
-
+    api(
+      `/menu?franchiseId=${encodeURIComponent(
+        franchiseId
+      )}&isAvailable=true`
+    )
+      .then((data) => {
         if (!mounted) return;
+
+        const items = data.items || [];
 
         setMenu(
           items.filter(
-            (item) => item.isAvailable !== false
+            (item) =>
+              item.isAvailable !== false &&
+              !item.catalogPreview
           )
         );
-
-        setError("");
-      } catch (err) {
-        if (!mounted) return;
-
-        setMenu([]);
-        setError(
-          err.message || "Unable to load menu"
-        );
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadMenu();
+      })
+      .catch((err) => {
+        if (mounted) setError(err.message);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
     return () => {
       mounted = false;
     };
   }, [franchiseId]);
 
+  // ============================================
+  // MENU FILTERS
+  // ============================================
 
-  // ====================================================
-  // MENU FILTERING
-  // ====================================================
-
-  const categories = useMemo(() => {
-    return [
+  const categories = useMemo(
+    () => [
       "All",
       ...new Set(
         menu
           .map((item) => item.category)
           .filter(Boolean)
       ),
-    ];
-  }, [menu]);
+    ],
+    [menu]
+  );
 
+  // Combine search, category and sorting without mutating menu state.
+  // Sort is always applied AFTER filtering, so both controls work together.
   const visible = useMemo(() => {
-    return menu.filter((item) => {
-      const matchesCategory =
-        category === "All" ||
-        item.category === category;
-
-      const matchesSearch =
-        `${item.name} ${item.category || ""}`
+    const term = search.toLowerCase().trim();
+    const matchingItems = menu.filter((item) => {
+      const matchCategory =
+        category === "All" || item.category === category;
+      const matchSearch =
+        `${item.name || ""} ${item.category || ""}`
           .toLowerCase()
-          .includes(
-            search.toLowerCase().trim()
-          );
-
-      return (
-        matchesCategory &&
-        matchesSearch
-      );
+          .includes(term);
+      return matchCategory && matchSearch;
     });
-  }, [menu, category, search]);
+
+    return matchingItems.sort((a, b) => {
+      const nameA = String(a.name || "");
+      const nameB = String(b.name || "");
+      const priceA = Number(a.price) || 0;
+      const priceB = Number(b.price) || 0;
+
+      if (priceSort === "high-low") {
+        return priceB - priceA || nameA.localeCompare(nameB);
+      }
+      if (priceSort === "name-az") {
+        return nameA.localeCompare(nameB);
+      }
+      if (priceSort === "name-za") {
+        return nameB.localeCompare(nameA);
+      }
+      // Initial value and fallback: Price low to high.
+      return priceA - priceB || nameA.localeCompare(nameB);
+    });
+  }, [menu, category, search, priceSort]);
 
   const quantity = cart.reduce(
     (sum, item) =>
@@ -2103,17 +2159,17 @@ export function KioskPage() {
     0
   );
 
-  const heroImage =
-    menu.find((item) => item.image)?.image;
+  const heroImage = menu.find(
+    (item) => item.image
+  )?.image;
 
   const currentFranchise = franchises.find(
     (item) => item._id === franchiseId
   );
 
-  // ====================================================
-  // CART QUANTITY
-  // + INCREASES BY EXACTLY 1
-  // ====================================================
+  // ============================================
+  // CART FUNCTIONS
+  // ============================================
 
   function changeQty(food, delta) {
     setCart((old) => {
@@ -2139,15 +2195,15 @@ export function KioskPage() {
         .map((item) =>
           item.id === food._id
             ? {
-              ...item,
-              quantity: Math.max(
-                0,
-                Math.min(
-                  50,
-                  item.quantity + delta
-                )
-              ),
-            }
+                ...item,
+                quantity: Math.max(
+                  0,
+                  Math.min(
+                    50,
+                    item.quantity + delta
+                  )
+                ),
+              }
             : item
         )
         .filter(
@@ -2156,27 +2212,18 @@ export function KioskPage() {
     });
   }
 
-  // ====================================================
+  // ============================================
   // RESET KIOSK
-  // CALLED AFTER VERIFIED ADMIN CONFIRMATION
-  // OR AN UNPAID TIMEOUT
-  // ====================================================
+  // ============================================
 
   const reset = useCallback(() => {
-    // Clear storage immediately to avoid
-    // restoring the previous customer's order.
-    saveKioskOrder(null);
-
-    activeOrderRef.current = null;
-
     lock.current = false;
 
-    try {
-      gatewayRef.current?.close?.();
-    } catch {
-      // Ignore close errors.
-    }
+    activeOrderRef.current = null;
+    // Only clear storage when it is safe to release the kiosk.
+    saveKioskOrder(null);
 
+    gatewayRef.current?.close?.();
     gatewayRef.current = null;
 
     setBusy(false);
@@ -2207,155 +2254,90 @@ export function KioskPage() {
     );
   }, [onlineEnabled]);
 
-  // ====================================================
-  // REFRESH ORDER FROM BACKEND
-  // ====================================================
+  // ============================================
+  // REFRESH ORDER
+  // ============================================
 
-  const refreshOrder = useCallback(
-    async (trackingCode) => {
-      const response = await api(
-        `/kiosk/track/${encodeURIComponent(
-          trackingCode
-        )}`
-      );
+  const refreshOrder = useCallback(async (code) => {
+    const data = await api(
+      `/kiosk/track/${encodeURIComponent(code)}`
+    );
 
-      const serverOrder = response.order;
-
-      if (!serverOrder) {
-        throw new Error(
-          "Order tracking response is empty."
-        );
+    setActiveOrder((old) => {
+      if (
+        !old ||
+        old.order.trackingCode !== code
+      ) {
+        return old;
       }
 
-      // Merge response with the locally stored
-      // order so _id and orderKey are preserved.
-      setActiveOrder((current) => {
-        if (
-          !current ||
-          current.order.trackingCode !==
-          trackingCode
-        ) {
-          return current;
-        }
+      const next = { ...data.order };
 
-        const updated = {
-          ...current,
-          order: {
-            ...current.order,
-            ...serverOrder,
-          },
-        };
+      if (
+        paid(old.order) &&
+        !paid(next)
+      ) {
+        next.paymentStatus = "Paid";
+      }
 
-        activeOrderRef.current = updated;
-        saveKioskOrder(updated);
+      if (
+        hasSeat(old.order) &&
+        !hasSeat(next)
+      ) {
+        next.seatNumber =
+          old.order.seatNumber;
+      }
 
-        return updated;
-      });
+      const updated = {
+        ...old,
 
-      return serverOrder;
-    },
-    []
-  );
+        order: {
+          ...old.order,
+          ...next,
+        },
+      };
 
-  // ====================================================
+      activeOrderRef.current = updated;
+
+      return updated;
+    });
+
+    return data.order;
+  }, []);
+
+  // ============================================
   // LOAD AVAILABLE SEATS
-  // CUSTOMER ONLY, AFTER PAYMENT
-  // ====================================================
+  // ============================================
 
   const loadSeats = useCallback(
-    async (order, orderKey) => {
-      const response = await api(
+    async (order, key) => {
+      const result = await api(
         `/kiosk/orders/${order._id}/seats`,
         {
           headers: {
-            "x-kiosk-order-key":
-              orderKey,
+            "x-kiosk-order-key": key,
           },
         }
       );
 
       setSeats({
-        capacity: Number(
-          response.capacity || 0
-        ),
-        available:
-          response.available || [],
-        occupied:
-          response.occupied || [],
+        capacity: result.capacity || 0,
+        available: result.available || [],
+        occupied: result.occupied || [],
       });
 
-      setSeatChoice((current) =>
-        response.available?.includes(
-          current
-        )
-          ? current
+      setSeatChoice((old) =>
+        result.available?.includes(old)
+          ? old
           : null
       );
     },
     []
   );
 
-  const loadUpiQr = useCallback(async (order, orderKey) => {
-    if (!order?._id || !orderKey) return;
-
-    setUpiQrLoading(true);
-    setUpiQrError("");
-
-    try {
-      const response = await api(
-        `/kiosk/orders/${order._id}/upi-qr`,
-        {
-          headers: {
-            "x-kiosk-order-key": orderKey,
-          },
-        }
-      );
-
-      if (
-        !response.qrDataUrl ||
-        !response.qrDataUrl.startsWith("data:image/")
-      ) {
-        throw new Error("QR image not received from server.");
-      }
-
-      setUpiQr(response);
-    } catch (err) {
-      setUpiQr(null);
-      setUpiQrError(
-        err.message || "Unable to generate UPI QR."
-      );
-    } finally {
-      setUpiQrLoading(false);
-    }
-  }, []);
-
-  // Load QR automatically after UPI order creation
-  // and when restoring a pending order after refresh.
-  useEffect(() => {
-    if (
-      screen !== "status" ||
-      !activeOrder ||
-      activeOrder.method !== "Counter UPI" ||
-      isPaid(activeOrder.order)
-    ) {
-      return;
-    }
-
-    void loadUpiQr(activeOrder.order, activeOrder.key);
-  }, [
-    screen,
-    activeOrder?.order?._id,
-    activeOrder?.key,
-    activeOrder?.method,
-    activeOrder?.order?.paymentStatus,
-    loadUpiQr,
-  ]);
-
-
-  // ====================================================
-  // RESTORE ORDER AND POLL SERVER
-  // NEVER RESET JUST BECAUSE PAGE WAS REFRESHED
-  // ====================================================
+  // ============================================
+  // POLLING FOR ADMIN CONFIRMATION
+  // ============================================
 
   useEffect(() => {
     if (
@@ -2365,69 +2347,45 @@ export function KioskPage() {
       return;
     }
 
-    const code =
-      activeOrder.order.trackingCode;
+    const code = activeOrder.order.trackingCode;
 
-    let mounted = true;
+    refreshOrder(code).catch(() => {});
 
-    const sync = async () => {
-      try {
-        await refreshOrder(code);
+    const interval = setInterval(() => {
+      refreshOrder(code).catch(() => {});
+    }, 2500);
 
-        if (mounted) {
-          setError("");
-        }
-      } catch {
-        // Keep the customer on the current
-        // order screen during network errors.
-        // Do not redirect them to the menu.
-      }
-    };
-
-    sync();
-
-    const interval = setInterval(
-      sync,
-      2500
-    );
-
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [
     screen,
     activeOrder?.order?.trackingCode,
     refreshOrder,
   ]);
 
-  // ====================================================
-  // AVAILABLE SEATS REFRESH
-  // ====================================================
+  // ============================================
+  // REFRESH AVAILABLE SEATS
+  // ============================================
 
   useEffect(() => {
     if (
       screen !== "status" ||
-      !activeOrder ||
-      !isPaid(activeOrder.order) ||
-      hasSeat(activeOrder.order)
+      !paid(activeOrder?.order) ||
+      hasSeat(activeOrder?.order)
     ) {
       return;
     }
 
     let mounted = true;
 
-    const updateSeats = async () => {
-      try {
-        await loadSeats(
-          activeOrder.order,
-          activeOrder.key
-        );
-      } catch (err) {
-        if (mounted) {
-          setError(err.message);
-        }
-      }
+    const updateSeats = () => {
+      if (!mounted) return;
+
+      loadSeats(
+        activeOrder.order,
+        activeOrder.key
+      ).catch((err) => {
+        if (mounted) setError(err.message);
+      });
     };
 
     updateSeats();
@@ -2450,35 +2408,29 @@ export function KioskPage() {
     loadSeats,
   ]);
 
-  // ====================================================
-  // ADMIN CONFIRMATION
-  // ONLY RETURN TO MENU AFTER:
-  // 1. PAYMENT VERIFIED
-  // 2. CUSTOMER SEAT SELECTED
-  // 3. ADMIN CONFIRMED THE ORDER
-  // ====================================================
+  // ============================================
+  // ADMIN CONFIRMS -> AUTO OPEN MENU
+  // ============================================
 
   useEffect(() => {
     if (screen !== "status") return;
 
     const order = activeOrder?.order;
-
     if (!order) return;
 
-    if (order.status === "Cancelled") {
-      reset();
-      return;
-    }
+    const adminConfirmed = [
+      "Confirmed",
+      "Preparing",
+      "Ready",
+      "Picked Up",
+    ].includes(order.status);
 
-    const adminConfirmed =
-      ADMIN_CONFIRMED_STATUSES.includes(
-        order.status
-      );
-
+    // NEVER open the menu before the customer's seat is confirmed.
+    // Admin confirmation releases the kiosk only once both payment
+    // and customer seat selection are verified by the server.
     if (
-      adminConfirmed &&
-      isPaid(order) &&
-      hasSeat(order)
+      (adminConfirmed && paid(order) && hasSeat(order)) ||
+      order.status === "Cancelled"
     ) {
       reset();
     }
@@ -2490,88 +2442,81 @@ export function KioskPage() {
     reset,
   ]);
 
-  // ====================================================
-  // CHECK 60-SECOND PAYMENT TIMEOUT
-  // ====================================================
+  // ============================================
+  // PAYMENT TIMEOUT VALIDATION
+  // ============================================
 
   const checkPaymentTimeout = useCallback(
     async () => {
-      const current =
-        activeOrderRef.current;
+      const current = activeOrderRef.current;
 
       if (
         !current ||
-        isPaid(current.order) ||
+        paid(current.order) ||
         timeoutCheckingRef.current
       ) {
         return;
       }
 
-      // Avoid repeated network requests
-      // every second at zero.
-      if (
-        Date.now() -
-        lastTimeoutAttemptRef.current <
-        8000
-      ) {
+      // If the network is down, retry later rather than clearing
+      // a potentially paid order and dropping seat selection.
+      if (Date.now() - lastTimeoutAttemptRef.current < 5000) {
         return;
       }
-
-      timeoutCheckingRef.current = true;
       lastTimeoutAttemptRef.current = Date.now();
+      timeoutCheckingRef.current = true;
 
-      const code =
-        current.order.trackingCode;
+      const code = current.order.trackingCode;
 
       try {
-        const result = await api(
-          `/kiosk/track/${encodeURIComponent(
-            code
-          )}`
+        const data = await api(
+          `/kiosk/track/${encodeURIComponent(code)}`
         );
 
-        const currentOrder =
-          activeOrderRef.current;
-
         if (
-          !currentOrder ||
-          currentOrder.order.trackingCode !==
-          code
+          activeOrderRef.current?.order
+            ?.trackingCode !== code
         ) {
           return;
         }
 
-        if (
-          isPaid(result.order) ||
-          isPaid(currentOrder.order)
+        if (paid(data.order)) {
+          setActiveOrder((old) => {
+            if (
+              !old ||
+              old.order.trackingCode !== code
+            ) {
+              return old;
+            }
+
+            const updated = {
+              ...old,
+              order: {
+                ...old.order,
+                ...data.order,
+              },
+            };
+
+            activeOrderRef.current = updated;
+
+            return updated;
+          });
+        } else if (
+          !paid(activeOrderRef.current.order)
         ) {
-          const updated = {
-            ...currentOrder,
-            order: {
-              ...currentOrder.order,
-              ...result.order,
-              paymentStatus: "Paid",
-            },
-          };
-
-          activeOrderRef.current = updated;
-
-          setActiveOrder(updated);
-          saveKioskOrder(updated);
-
-          return;
+          reset();
         }
-
-        // Payment is still not verified
-        // after 60 seconds.
-        reset();
       } catch {
-        // Server may be temporarily offline.
-        // Keep order on screen rather than
-        // accidentally losing a paid order.
-        setError(
-          "Unable to verify payment status. The order will stay here until the server responds."
-        );
+        // Network errors must not erase the customer's active order.
+        // Keep the status screen, and retry after a short delay.
+        if (
+          activeOrderRef.current?.order?.trackingCode === code &&
+          !paid(activeOrderRef.current.order)
+        ) {
+          setError(
+            "Cannot verify payment status yet. Reconnecting; your order is saved."
+          );
+        }
       } finally {
         timeoutCheckingRef.current = false;
       }
@@ -2579,23 +2524,22 @@ export function KioskPage() {
     [reset]
   );
 
-  // ====================================================
-  // PAYMENT COUNTDOWN
-  // TIMER SURVIVES BROWSER REFRESH
-  // ====================================================
+  // ============================================
+  // 60-SECOND PAYMENT COUNTDOWN
+  // ============================================
 
   useEffect(() => {
     if (
       screen !== "status" ||
       !activeOrder ||
-      isPaid(activeOrder.order)
+      paid(activeOrder.order)
     ) {
       return;
     }
 
     const deadline =
       activeOrder.createdAtMs +
-      PAYMENT_TIMEOUT_MS;
+      PAYMENT_TIMEOUT;
 
     const tick = () => {
       const remaining = Math.max(
@@ -2619,8 +2563,7 @@ export function KioskPage() {
       1000
     );
 
-    return () =>
-      clearInterval(interval);
+    return () => clearInterval(interval);
   }, [
     screen,
     activeOrder?.order?._id,
@@ -2629,145 +2572,129 @@ export function KioskPage() {
     checkPaymentTimeout,
   ]);
 
-  // ====================================================
-  // RAZORPAY ONLINE PAYMENT
-  // ====================================================
+  // ============================================
+  // ONLINE PAYMENT
+  // ============================================
 
-  async function payOnline(order, orderKey) {
+  async function payOnline(order, key) {
     await loadRazorpay();
 
     const payment = await api(
       `/kiosk/orders/${order._id}/pay`,
       {
         method: "POST",
+
         headers: {
-          "x-kiosk-order-key":
-            orderKey,
+          "x-kiosk-order-key": key,
         },
       }
     );
 
-    return new Promise(
-      (resolve, reject) => {
-        let settled = false;
+    return new Promise((resolve, reject) => {
+      let settled = false;
 
-        const failOnce = (message) => {
+      const rejectOnce = (message) => {
+        if (settled) return;
+
+        settled = true;
+
+        reject(new Error(message));
+      };
+
+      const checkout = new window.Razorpay({
+        key: payment.keyId,
+
+        amount: payment.amount,
+
+        currency: payment.currency,
+
+        name: "OfficeBite",
+
+        description:
+          `Order ${order.orderNumber}`,
+
+        order_id: payment.gatewayOrderId,
+
+        theme: {
+          color: "#173f35",
+        },
+
+        handler: async (details) => {
           if (settled) return;
 
           settled = true;
 
-          reject(
-            new Error(message)
-          );
-        };
+          try {
+            const verified = await api(
+              `/kiosk/orders/${order._id}/verify`,
+              {
+                method: "POST",
 
-        const checkout =
-          new window.Razorpay({
-            key: payment.keyId,
+                headers: {
+                  "x-kiosk-order-key": key,
+                },
 
-            amount: payment.amount,
-
-            currency:
-              payment.currency,
-
-            name: "OfficeBite",
-
-            description:
-              `Order ${order.orderNumber}`,
-
-            order_id:
-              payment.gatewayOrderId,
-
-            theme: {
-              color: COLORS.forest,
-            },
-
-            handler: async (
-              details
-            ) => {
-              if (settled) return;
-
-              settled = true;
-
-              try {
-                const verified = await api(
-                  `/kiosk/orders/${order._id}/verify`,
-                  {
-                    method: "POST",
-
-                    headers: {
-                      "x-kiosk-order-key":
-                        orderKey,
-                    },
-
-                    body: JSON.stringify(
-                      details
-                    ),
-                  }
-                );
-
-                const current =
-                  activeOrderRef.current;
-
-                if (
-                  current?.order?._id ===
-                  order._id
-                ) {
-                  const updated = {
-                    ...current,
-                    order: {
-                      ...current.order,
-                      ...verified.order,
-                    },
-                  };
-
-                  activeOrderRef.current =
-                    updated;
-
-                  setActiveOrder(updated);
-
-                  saveKioskOrder(updated);
-                }
-
-                resolve(
-                  verified.order
-                );
-              } catch (err) {
-                reject(err);
+                body: JSON.stringify(details),
               }
-            },
-
-            modal: {
-              ondismiss: () =>
-                failOnce(
-                  "Payment window closed. Check payment status before retrying."
-                ),
-            },
-          });
-
-        checkout.on(
-          "payment.failed",
-          (event) => {
-            failOnce(
-              event.error?.description ||
-              "Payment failed."
             );
+
+            setActiveOrder((old) => {
+              if (
+                !old ||
+                old.order._id !== order._id
+              ) {
+                return old;
+              }
+
+              const updated = {
+                ...old,
+
+                order: {
+                  ...old.order,
+                  ...verified.order,
+                },
+              };
+
+              activeOrderRef.current = updated;
+
+              return updated;
+            });
+
+            resolve(verified.order);
+          } catch (err) {
+            reject(err);
           }
-        );
+        },
 
-        gatewayRef.current =
-          checkout;
+        modal: {
+          ondismiss: () =>
+            rejectOnce(
+              "Payment popup closed. Check payment status before retrying."
+            ),
+        },
+      });
 
-        checkout.open();
-      }
-    );
+      checkout.on(
+        "payment.failed",
+        (event) => {
+          rejectOnce(
+            event.error?.description ||
+              "Payment failed."
+          );
+        }
+      );
+
+      gatewayRef.current = checkout;
+
+      checkout.open();
+    });
   }
 
-  // ====================================================
-  // CREATE ORDER
-  // ====================================================
+  // ============================================
+  // PLACE ORDER
+  // ============================================
 
-  async function placeOrder(selectedMethod = method) {
+  async function placeOrder() {
     if (
       lock.current ||
       !cart.length ||
@@ -2781,8 +2708,6 @@ export function KioskPage() {
     setBusy(true);
     setError("");
 
-    let createdOrder = null;
-
     try {
       const result = await api(
         "/kiosk/orders",
@@ -2792,105 +2717,77 @@ export function KioskPage() {
           body: JSON.stringify({
             franchiseId,
 
-            paymentMethod: selectedMethod,
+            paymentMethod: method,
 
-            items: cart.map(
-              (item) => ({
-                menuItemId:
-                  item.id,
-
-                quantity:
-                  item.quantity,
-              })
-            ),
+            items: cart.map((item) => ({
+              menuItemId: item.id,
+              quantity: item.quantity,
+            })),
           }),
         }
       );
 
-      createdOrder = result.order;
-
       const fresh = {
         order: result.order,
         key: result.orderKey,
-        method: selectedMethod,
+        method,
         franchiseId,
         createdAtMs: Date.now(),
       };
 
-      // Save immediately, before starting
-      // online payment or another async task.
-      activeOrderRef.current =
-        fresh;
-
+      // Save BEFORE Razorpay opens or the user can press F5.
       saveKioskOrder(fresh);
+      activeOrderRef.current = fresh;
+
+      setPaymentSeconds(60);
 
       setActiveOrder(fresh);
 
       setCart([]);
       setCartOpen(false);
 
-      setPaymentSeconds(60);
       setScreen("status");
 
-      // Online payment.
-
-      if (selectedMethod === "Online (Razorpay)") {
-
+      if (method === "Online (Razorpay)") {
         try {
           await payOnline(
             result.order,
             result.orderKey
           );
         } catch (err) {
-          const current =
-            activeOrderRef.current;
-
           if (
-            current?.order?._id ===
+            activeOrderRef.current?.order?._id ===
             result.order._id
           ) {
             setError(err.message);
           }
         }
 
-        // Recheck server payment state.
-        const current =
-          activeOrderRef.current;
-
         if (
-          current?.order?._id ===
+          activeOrderRef.current?.order?._id ===
           result.order._id
         ) {
           await refreshOrder(
             result.order.trackingCode
-          ).catch(() => { });
+          ).catch(() => {});
         }
       }
     } catch (err) {
-      if (!createdOrder) {
-        setError(
-          err.message ||
-          "Unable to place order."
-        );
-      }
+      setError(err.message);
     } finally {
       lock.current = false;
       setBusy(false);
     }
   }
 
-  // ====================================================
+  // ============================================
   // RETRY ONLINE PAYMENT
-  // ====================================================
+  // ============================================
 
   async function retryPayment() {
-    const current =
-      activeOrderRef.current;
-
     if (
-      !current ||
-      lock.current ||
-      paymentSeconds === 0
+      !activeOrder ||
+      lock.current
     ) {
       return;
     }
@@ -2902,40 +2799,40 @@ export function KioskPage() {
 
     try {
       const latest = await refreshOrder(
-        current.order.trackingCode
+        activeOrder.order.trackingCode
       );
 
-      if (!isPaid(latest)) {
+      if (!paid(latest)) {
         await payOnline(
-          current.order,
-          current.key
+          activeOrder.order,
+          activeOrder.key
         );
       }
 
       await refreshOrder(
-        current.order.trackingCode
+        activeOrder.order.trackingCode
       );
     } catch (err) {
-      setError(err.message);
+      if (
+        activeOrderRef.current?.order?._id ===
+        activeOrder.order._id
+      ) {
+        setError(err.message);
+      }
     } finally {
       lock.current = false;
       setBusy(false);
     }
   }
 
-  // ====================================================
-  // CUSTOMER SELECTS SEAT
-  // ADMIN CANNOT SELECT IT
-  // ====================================================
+  // ============================================
+  // CUSTOMER SEAT CONFIRMATION
+  // ============================================
 
   async function confirmSeat() {
-    const current =
-      activeOrderRef.current;
-
     if (
-      !current ||
-      !isPaid(current.order) ||
-      hasSeat(current.order) ||
+      !activeOrder ||
+      !paid(activeOrder.order) ||
       !seats.available.includes(seatChoice) ||
       lock.current
     ) {
@@ -2948,81 +2845,72 @@ export function KioskPage() {
     setError("");
 
     try {
-      const response = await api(
-        `/kiosk/orders/${current.order._id}/seat`,
+      const result = await api(
+        `/kiosk/orders/${activeOrder.order._id}/seat`,
         {
           method: "POST",
 
           headers: {
             "x-kiosk-order-key":
-              current.key,
+              activeOrder.key,
           },
 
           body: JSON.stringify({
-            seatNumber:
-              seatChoice,
+            seatNumber: seatChoice,
           }),
         }
       );
 
-      const latest =
-        activeOrderRef.current;
+      setActiveOrder((old) => {
+        if (
+          !old ||
+          old.order._id !==
+            activeOrder.order._id
+        ) {
+          return old;
+        }
 
-      if (
-        latest?.order?._id !==
-        current.order._id
-      ) {
-        return;
-      }
+        const updated = {
+          ...old,
 
-      const updated = {
-        ...latest,
-        order: {
-          ...latest.order,
-          ...response.order,
-        },
-      };
+          order: {
+            ...old.order,
+            ...result.order,
+          },
+        };
 
-      activeOrderRef.current =
-        updated;
+        activeOrderRef.current = updated;
 
-      setActiveOrder(updated);
-
-      saveKioskOrder(updated);
+        return updated;
+      });
     } catch (err) {
       setError(err.message);
 
       await loadSeats(
-        current.order,
-        current.key
-      ).catch(() => { });
+        activeOrder.order,
+        activeOrder.key
+      ).catch(() => {});
     } finally {
       lock.current = false;
       setBusy(false);
     }
   }
 
-  // ====================================================
+  // ============================================
   // PAYMENT METHODS
-  // ====================================================
+  // ============================================
 
   const paymentMethods = [
     ...(onlineEnabled
       ? [
-        {
-          value:
-            "Online (Razorpay)",
-
-          label:
-            "Pay online",
-
-          description:
-            "UPI, cards and net banking",
-
-          icon:
-            CreditCard,
-        },
-      ]
+          {
+            value: "Online (Razorpay)",
+            label: "Pay online",
+            description:
+              "UPI, cards and net banking",
+            icon: CreditCard,
+          },
+        ]
       : []),
 
     {
@@ -3032,53 +2920,28 @@ export function KioskPage() {
       icon: Wallet,
     },
 
-
     {
       value: "Counter UPI",
-      label: "Scan UPI QR",
-      description: "Scan QR code to complete your payment",
-      icon: QrCode,
+      label: "UPI at counter",
+      description:
+        "Scan and pay at the counter",
+      icon: CreditCard,
     },
-
   ];
-  // Payment radio input
-  const [value, setValue] = useState("");
-  // ====================================================
-  // CURRENT ORDER STATE
-  // ====================================================
 
-  const currentOrder =
-    activeOrder?.order || null;
-
-  const paymentComplete =
-    isPaid(currentOrder);
-
-  const seatConfirmed =
-    hasSeat(currentOrder);
-
-  const progressStep =
-    screen === "menu"
-      ? 0
-      : screen === "checkout" ||
-        !paymentComplete
-        ? 1
-        : seatConfirmed
-          ? 3
-          : 2;
-
-  // ====================================================
-  // COMPLETE KIOSK UI
-  // ====================================================
+  // ============================================
+  // RETURN UI
+  // ============================================
 
   return (
     <div className="cafe-kiosk">
-      {/* CSS INSIDE JSX */}
+      {/* EMBEDDED CSS */}
 
       <style>{KIOSK_STYLES}</style>
 
-      {/* ======================================
+      {/* ====================================
           HEADER
-      ====================================== */}
+      ==================================== */}
 
       <header className="cafe-header">
         <div className="cafe-container cafe-header-inner">
@@ -3125,61 +2988,70 @@ export function KioskPage() {
         </div>
       </header>
 
+      {/* ====================================
+          MAIN CONTENT
+      ==================================== */}
+
       <div className="cafe-container">
-        {/* ====================================
-            PROGRESS
-        ==================================== */}
+        {/* PROGRESS STEPS */}
 
         <nav
           className="cafe-progress"
-          aria-label="Order progress"
+          aria-label="Ordering steps"
         >
           {[
             "Choose food",
             "Payment",
             "Pick your seat",
             "Admin confirms",
-          ].map((name, index) => (
-            <div
-              key={name}
-              className={
-                index <= progressStep
-                  ? "active"
-                  : ""
-              }
-            >
-              <span>
-                {index < progressStep ? (
-                  <Check size={14} />
-                ) : (
-                  index + 1
-                )}
-              </span>
+          ].map((name, index) => {
+            const step =
+              screen === "menu"
+                ? 0
+                : screen === "checkout" ||
+                  !paid(activeOrder?.order)
+                ? 1
+                : hasSeat(activeOrder?.order)
+                ? 3
+                : 2;
 
-              {name}
-            </div>
-          ))}
+            return (
+              <div
+                key={name}
+                className={
+                  index <= step
+                    ? "active"
+                    : ""
+                }
+              >
+                <span>
+                  {index < step ? (
+                    <Check size={14} />
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+
+                {name}
+              </div>
+            );
+          })}
         </nav>
 
-        {/* ====================================
-            ERROR
-        ==================================== */}
+        {/* ERROR MESSAGE */}
 
         {error && (
           <div
             className="cafe-error"
             role="alert"
           >
-            <span>
-              {error}
-            </span>
+            {error}
 
             <button
-              type="button"
               onClick={() =>
                 setError("")
               }
-              aria-label="Dismiss error"
+              aria-label="Dismiss"
             >
               <X size={17} />
             </button>
@@ -3197,24 +3069,20 @@ export function KioskPage() {
             <section className="cafe-hero">
               <div className="cafe-hero-copy">
                 <p className="cafe-eyebrow">
-                  ✦ FRESHLY PREPARED,
-                  JUST FOR YOU
+                  ✦ FRESHLY PREPARED, JUST FOR YOU
                 </p>
 
                 <h1>
                   Every bite,
                   <br />
-
-                  <em>
-                    a little delight.
-                  </em>
+                  <em>a little delight.</em>
                 </h1>
 
                 <p>
-                  Discover everyday
-                  favourites, pay your way
-                  and choose the perfect
-                  seat. Enjoy your break!
+                  Discover everyday favourites,
+                  pay your way and choose
+                  the perfect seat.
+                  Enjoy your break!
                 </p>
 
                 <div className="cafe-hero-features">
@@ -3250,14 +3118,12 @@ export function KioskPage() {
                 <div className="cafe-photo-badge">
                   MADE
                   <br />
-                  <strong>
-                    FRESH!
-                  </strong>
+                  <strong>FRESH!</strong>
                 </div>
               </div>
             </section>
 
-            {/* MENU CONTENT */}
+            {/* MENU HEADING */}
 
             <section className="cafe-menu-section">
               <div className="cafe-section-head">
@@ -3277,9 +3143,7 @@ export function KioskPage() {
                 </div>
 
                 <span className="cafe-items-count">
-                  {visible.length}
-                  {" "}
-                  dishes
+                  {visible.length} dishes
                 </span>
               </div>
 
@@ -3296,11 +3160,10 @@ export function KioskPage() {
                         event.target.value
                       );
 
-                      setCart([]);
                       setCategory("All");
                       setSearch("");
                     }}
-                    aria-label="Select cafeteria"
+                    aria-label="Choose cafeteria"
                   >
                     {!franchises.length && (
                       <option value="">
@@ -3333,8 +3196,21 @@ export function KioskPage() {
                       )
                     }
                     placeholder="Search delicious food..."
-                    aria-label="Search food"
+                    aria-label="Search menu"
                   />
+                </label>
+                <label className="cafe-price-sort">
+                  <ArrowDownUp size={18} aria-hidden="true" />
+                  <select
+                    value={priceSort}
+                    onChange={(event) => setPriceSort(event.target.value)}
+                    aria-label="Sort menu by price or name"
+                  >
+                    <option value="low-high">Price: Low to High</option>
+                    <option value="high-low">Price: High to Low</option>
+                    <option value="name-az">Name: A to Z</option>
+                    <option value="name-za">Name: Z to A</option>
+                  </select>
                 </label>
               </div>
 
@@ -3343,7 +3219,6 @@ export function KioskPage() {
               <div className="cafe-categories">
                 {categories.map((cat) => (
                   <button
-                    type="button"
                     key={cat}
                     className={
                       category === cat
@@ -3370,31 +3245,23 @@ export function KioskPage() {
                 ))}
               </div>
 
-              {/* FOOD GRID */}
+              {/* FOOD CARDS */}
 
               {loading ? (
                 <div className="cafe-empty">
                   <RefreshCw
                     className="cafe-spin"
-                    size={20}
                   />
-
-                  <p>
-                    Loading menu...
-                  </p>
+                  Loading menu...
                 </div>
-              ) : visible.length === 0 ? (
+              ) : !visible.length ? (
                 <div className="cafe-empty">
                   No items found.
-                  Try another category.
+                  Try another category or search.
                 </div>
               ) : (
                 <div className="cafe-grid">
                   {visible.map((food) => {
-                    const canOrder =
-                      Boolean(franchiseId) &&
-                      !food.catalogPreview &&
-                      food.isAvailable !== false;
                     const qty =
                       cart.find(
                         (item) =>
@@ -3403,7 +3270,7 @@ export function KioskPage() {
 
                     const veg =
                       typeof food.isVeg ===
-                        "boolean"
+                      "boolean"
                         ? food.isVeg
                         : food.isVegetarian;
 
@@ -3436,20 +3303,18 @@ export function KioskPage() {
 
                         <div className="cafe-food-info">
                           <div className="cafe-food-name">
-                            <h3>
-                              {food.name}
-                            </h3>
+                            <h3>{food.name}</h3>
 
                             {typeof veg ===
                               "boolean" && (
-                                <i
-                                  className={
-                                    veg
-                                      ? "cafe-veg"
-                                      : "cafe-nonveg"
-                                  }
-                                />
-                              )}
+                              <i
+                                className={
+                                  veg
+                                    ? "cafe-veg"
+                                    : "cafe-nonveg"
+                                }
+                              />
+                            )}
                           </div>
 
                           <p>
@@ -3457,24 +3322,20 @@ export function KioskPage() {
                             Made with care
                           </p>
 
-
                           <div className="cafe-food-bottom">
-                            <strong>{fmt(food.price)}</strong>
+                            <strong>
+                              {fmt(food.price)}
+                            </strong>
 
-                            {!canOrder ? (
-                              <button
-                                className="cafe-add"
-                                type="button"
-                                disabled
-                                title="A registered cafeteria menu is required"
-                              >
-                                Preview Only
-                              </button>
-                            ) : qty > 0 ? (
+                            {qty > 0 ? (
                               <div className="cafe-qty">
                                 <button
-                                  type="button"
-                                  onClick={() => changeQty(food, -1)}
+                                  onClick={() =>
+                                    changeQty(
+                                      food,
+                                      -1
+                                    )
+                                  }
                                   aria-label="Decrease quantity"
                                 >
                                   <Minus size={16} />
@@ -3483,9 +3344,15 @@ export function KioskPage() {
                                 <b>{qty}</b>
 
                                 <button
-                                  type="button"
-                                  onClick={() => changeQty(food, 1)}
-                                  disabled={qty >= 50}
+                                  onClick={() =>
+                                    changeQty(
+                                      food,
+                                      1
+                                    )
+                                  }
+                                  disabled={
+                                    qty >= 50
+                                  }
                                   aria-label="Increase quantity"
                                 >
                                   <Plus size={16} />
@@ -3494,15 +3361,18 @@ export function KioskPage() {
                             ) : (
                               <button
                                 className="cafe-add"
-                                type="button"
-                                onClick={() => changeQty(food, 1)}
+                                onClick={() =>
+                                  changeQty(
+                                    food,
+                                    1
+                                  )
+                                }
                               >
                                 <Plus size={16} />
                                 Add
                               </button>
                             )}
                           </div>
-
                         </div>
                       </article>
                     );
@@ -3529,7 +3399,6 @@ export function KioskPage() {
           <main className="cafe-flow">
             <section className="cafe-panel">
               <button
-                type="button"
                 className="cafe-back"
                 onClick={() =>
                   setScreen("menu")
@@ -3566,10 +3435,11 @@ export function KioskPage() {
                   }) => (
                     <label
                       key={value}
-                      className={`cafe-payment ${method === value
+                      className={`cafe-payment ${
+                        method === value
                           ? "selected"
                           : ""
-                        }`}
+                      }`}
                     >
                       <input
                         type="radio"
@@ -3604,21 +3474,16 @@ export function KioskPage() {
 
               <div className="cafe-hint">
                 <ShieldCheck size={18} />
-
                 You can select your own
                 available seat after payment.
               </div>
 
               <button
-                type="button"
                 className="cafe-primary cafe-full"
                 disabled={
-                  busy ||
-                  quantity === 0
+                  busy || !quantity
                 }
-
-                onClick={() => void placeOrder(method)}
-
+                onClick={placeOrder}
               >
                 {busy
                   ? "Processing..."
@@ -3635,9 +3500,7 @@ export function KioskPage() {
                 YOUR BASKET
               </p>
 
-              <h2>
-                Order summary
-              </h2>
+              <h2>Order summary</h2>
 
               {cart.map((item) => (
                 <div
@@ -3645,35 +3508,27 @@ export function KioskPage() {
                   key={item.id}
                 >
                   <span>
-                    {item.quantity}
-                    {" × "}
+                    {item.quantity} ×
+                    {" "}
                     {item.name}
                   </span>
 
                   <b>
                     {fmt(
                       item.price *
-                      item.quantity
+                        item.quantity
                     )}
                   </b>
                 </div>
               ))}
 
               <div className="cafe-summary-row">
-                <span>
-                  Tax
-                </span>
-
-                <b>
-                  ₹0.00
-                </b>
+                <span>Tax</span>
+                <b>₹0.00</b>
               </div>
 
               <div className="cafe-summary-total">
-                <span>
-                  Total to pay
-                </span>
-
+                <span>Total to pay</span>
                 <strong>
                   {fmt(total)}
                 </strong>
@@ -3688,8 +3543,7 @@ export function KioskPage() {
         )}
 
         {/* ====================================
-            STATUS SCREEN
-            PERSISTS AFTER REFRESH
+            PAYMENT AND SEAT SCREEN
         ==================================== */}
 
         {screen === "status" &&
@@ -3697,14 +3551,15 @@ export function KioskPage() {
             <main className="cafe-status">
               <section className="cafe-panel cafe-status-panel">
                 <div
-                  className={`cafe-status-icon ${paymentComplete
+                  className={`cafe-status-icon ${
+                    paid(activeOrder.order)
                       ? "paid"
                       : ""
-                    }`}
+                  }`}
                 >
-                  {seatConfirmed ? (
+                  {hasSeat(activeOrder.order) ? (
                     <CheckCircle2 size={35} />
-                  ) : paymentComplete ? (
+                  ) : paid(activeOrder.order) ? (
                     <Armchair size={35} />
                   ) : (
                     <Clock3 size={35} />
@@ -3712,27 +3567,27 @@ export function KioskPage() {
                 </div>
 
                 <p className="cafe-kicker">
-                  {seatConfirmed
+                  {hasSeat(activeOrder.order)
                     ? "WAITING FOR ADMIN"
-                    : paymentComplete
-                      ? "PAYMENT CONFIRMED"
-                      : "PAYMENT PENDING"}
+                    : paid(activeOrder.order)
+                    ? "PAYMENT CONFIRMED"
+                    : "PAYMENT PENDING"}
                 </p>
 
                 <h1>
-                  {seatConfirmed
+                  {hasSeat(activeOrder.order)
                     ? "Seat saved. Almost ready!"
-                    : paymentComplete
-                      ? "Choose your seat"
-                      : "Complete your payment"}
+                    : paid(activeOrder.order)
+                    ? "Choose your seat"
+                    : "Complete your payment"}
                 </h1>
 
                 <p className="cafe-subtitle">
-                  {seatConfirmed
-                    ? "Your seat is saved. The menu will open automatically after admin confirmation."
-                    : paymentComplete
-                      ? "Select an available seat. Refreshing this page will keep you here until your seat is confirmed."
-                      : "Complete payment within one minute to continue to seat selection."}
+                  {hasSeat(activeOrder.order)
+                    ? "Your order has been sent to the admin. The menu will open automatically when the order is confirmed."
+                    : paid(activeOrder.order)
+                    ? "Choose any available seat. You do not need admin seat assignment."
+                    : "Please complete payment within one minute. The menu will reset if payment remains pending."}
                 </p>
 
                 <div className="cafe-order-meta">
@@ -3749,105 +3604,30 @@ export function KioskPage() {
 
                   <span
                     className={
-                      paymentComplete
+                      paid(activeOrder.order)
                         ? "cafe-paid"
                         : "cafe-pending"
                     }
                   >
-                    {paymentComplete
+                    {paid(activeOrder.order)
                       ? "✓ Paid"
                       : "⏳ Payment pending"}
                   </span>
                 </div>
 
-                {/* =====================================
-    UPI QR PAYMENT SCREEN
-===================================== */}
+                {/* 60 SECOND PAYMENT TIMER */}
 
-                {!paymentComplete &&
-                  activeOrder.method === "Counter UPI" && (
-                    <div className="cafe-qr-card">
-                      <div className="cafe-panel-icon">
-                        <QrCode size={30} />
-                      </div>
-
-                      <h2>Scan & Pay</h2>
-
-                      <p className="cafe-subtitle">
-                        Scan this QR using any supported UPI app.
-                      </p>
-
-                      {upiQrLoading ? (
-                        <div className="cafe-qr-loading">
-                          <RefreshCw
-                            size={28}
-                            className="cafe-spin"
-                          />
-                          <p>Generating your QR code...</p>
-                        </div>
-                      ) : upiQr?.qrDataUrl ? (
-                        <>
-                          <img
-                            src={upiQr.qrDataUrl}
-                            alt="UPI payment QR code"
-                            className="cafe-qr-image"
-                          />
-
-                          <h2>{fmt(upiQr.amount)}</h2>
-
-                          <p className="cafe-subtitle">
-                            Pay to: {upiQr.payeeName}
-                          </p>
-
-                          <p className="cafe-subtitle">
-                            Order: {upiQr.orderNumber}
-                          </p>
-                        </>
-                      ) : (
-                        <div className="cafe-qr-error">
-                          <p>
-                            {upiQrError ||
-                              "QR code could not be loaded."}
-                          </p>
-
-                          <button
-                            type="button"
-                            className="cafe-primary"
-                            onClick={() =>
-                              void loadUpiQr(
-                                activeOrder.order,
-                                activeOrder.key
-                              )
-                            }
-                          >
-                            <RefreshCw size={17} />
-                            Generate QR / Retry
-                          </button>
-                        </div>
-                      )}
-
-                      <div className="cafe-hint">
-                        <ShieldCheck size={18} />
-
-                        After making payment, please provide
-                        your transaction reference to the cashier.
-                        Seat selection unlocks after admin
-                        verifies the payment.
-                      </div>
-                    </div>
-                  )}
-
-
-                {/* PAYMENT TIMER */}
-
-                {!paymentComplete && (
+                {!paid(activeOrder.order) && (
                   <div
                     className="cafe-deadline"
                     role="status"
                   >
                     <div>
                       <Clock3 size={19} />
-                      Time left to pay
+
+                      <span>
+                        Time left to pay
+                      </span>
                     </div>
 
                     <strong>
@@ -3859,49 +3639,46 @@ export function KioskPage() {
                     <div className="cafe-deadline-track">
                       <span
                         style={{
-                          width: `${(paymentSeconds / 60) *
+                          width: `${
+                            (paymentSeconds /
+                              60) *
                             100
-                            }%`,
+                          }%`,
                         }}
                       />
                     </div>
                   </div>
                 )}
 
-                {!paymentComplete && (
+                {!paid(activeOrder.order) && (
                   <div className="cafe-hint">
                     <ShieldCheck size={19} />
 
                     {activeOrder.method ===
-                      "Online (Razorpay)"
-                      ? "Please complete your secure online payment."
-                      : "Please pay at the counter. Admin will verify your payment."}
+                    "Online (Razorpay)"
+                      ? "Complete your secure online payment before the timer ends."
+                      : "Please pay at the counter. Admin will verify the payment."}
                   </div>
                 )}
 
-                {!paymentComplete &&
+                {!paid(activeOrder.order) &&
                   activeOrder.method ===
-                  "Online (Razorpay)" && (
+                    "Online (Razorpay)" && (
                     <button
-                      type="button"
                       className="cafe-secondary cafe-full"
+                      disabled={busy}
                       onClick={retryPayment}
-                      disabled={
-                        busy ||
-                        paymentSeconds === 0
-                      }
                     >
                       <RefreshCw size={17} />
+
                       Retry online payment
                     </button>
                   )}
 
-                {/* =================================
-                    CUSTOMER SEAT SELECTION
-                ================================= */}
+                {/* CUSTOMER SEAT SELECTION */}
 
-                {paymentComplete &&
-                  !seatConfirmed && (
+                {paid(activeOrder.order) &&
+                  !hasSeat(activeOrder.order) && (
                     <div className="cafe-seat-section">
                       <div className="cafe-seat-heading">
                         <div>
@@ -3958,16 +3735,17 @@ export function KioskPage() {
 
                           return (
                             <button
-                              type="button"
                               key={number}
-                              className={`cafe-seat ${seatChoice ===
-                                  number
+                              className={`cafe-seat ${
+                                seatChoice ===
+                                number
                                   ? "chosen"
                                   : ""
-                                } ${!available
+                              } ${
+                                !available
                                   ? "occupied"
                                   : ""
-                                }`}
+                              }`}
                               disabled={
                                 !available ||
                                 busy
@@ -3992,36 +3770,34 @@ export function KioskPage() {
 
                               <small>
                                 {seatChoice ===
-                                  number
+                                number
                                   ? "Selected"
                                   : available
-                                    ? "Free"
-                                    : "Taken"}
+                                  ? "Free"
+                                  : "Taken"}
                               </small>
                             </button>
                           );
                         })}
                       </div>
 
-                      {seats.capacity === 0 && (
+                      {!seats.capacity && (
                         <p className="cafe-subtitle">
                           Checking available
                           seats...
                         </p>
                       )}
 
-                      {seats.capacity > 0 &&
-                        seats.available.length ===
-                        0 && (
+                      {!seats.available.length &&
+                        seats.capacity > 0 && (
                           <p className="cafe-subtitle">
-                            All seats are occupied.
-                            Please contact staff.
+                            All seats are
+                            occupied.
                           </p>
                         )}
 
                       <div className="cafe-seat-actions">
                         <button
-                          type="button"
                           className="cafe-secondary"
                           onClick={() =>
                             loadSeats(
@@ -4041,7 +3817,6 @@ export function KioskPage() {
                         </button>
 
                         <button
-                          type="button"
                           className="cafe-primary"
                           disabled={
                             !seatChoice ||
@@ -4054,8 +3829,8 @@ export function KioskPage() {
                           {busy
                             ? "Confirming..."
                             : seatChoice
-                              ? `Confirm seat ${seatChoice}`
-                              : "Select a seat"}
+                            ? `Confirm seat ${seatChoice}`
+                            : "Select a seat"}
 
                           <ChevronRight
                             size={18}
@@ -4065,11 +3840,9 @@ export function KioskPage() {
                     </div>
                   )}
 
-                {/* =================================
-                    WAITING FOR ADMIN
-                ================================= */}
+                {/* WAITING FOR ADMIN */}
 
-                {seatConfirmed && (
+                {hasSeat(activeOrder.order) && (
                   <div
                     className="cafe-seat-success"
                     role="status"
@@ -4100,9 +3873,10 @@ export function KioskPage() {
                     </p>
 
                     <small>
-                      Refreshing this page
-                      will not return you
-                      to the menu.
+                      <Clock3 size={15} />
+
+                      Menu opens automatically
+                      after confirmation.
                     </small>
                   </div>
                 )}
@@ -4131,14 +3905,13 @@ export function KioskPage() {
       </div>
 
       {/* ====================================
-          FLOATING CART
+          FLOATING CART BAR
       ==================================== */}
 
       {screen === "menu" &&
         quantity > 0 &&
         !cartOpen && (
           <button
-            type="button"
             className="cafe-floating"
             onClick={() =>
               setCartOpen(true)
@@ -4165,7 +3938,7 @@ export function KioskPage() {
                     (item) =>
                       `${item.quantity}× ${item.name} · ${fmt(
                         item.price *
-                        item.quantity
+                          item.quantity
                       )}`
                   )
                   .join(" • ")}
@@ -4188,7 +3961,6 @@ export function KioskPage() {
         cartOpen && (
           <div className="cafe-overlay">
             <button
-              type="button"
               className="cafe-scrim"
               onClick={() =>
                 setCartOpen(false)
@@ -4218,11 +3990,9 @@ export function KioskPage() {
                 </div>
 
                 <button
-                  type="button"
                   onClick={() =>
                     setCartOpen(false)
                   }
-                  aria-label="Close cart"
                 >
                   <X size={22} />
                 </button>
@@ -4251,13 +4021,12 @@ export function KioskPage() {
                         <b>
                           {fmt(
                             item.price *
-                            item.quantity
+                              item.quantity
                           )}
                         </b>
 
                         <div className="cafe-qty">
                           <button
-                            type="button"
                             onClick={() =>
                               changeQty(
                                 {
@@ -4267,21 +4036,19 @@ export function KioskPage() {
                                 -1
                               )
                             }
-                            aria-label="Decrease quantity"
                           >
-                            <Minus size={15} />
+                            <Minus
+                              size={15}
+                            />
                           </button>
 
                           <b>
-                            {item.quantity}
+                            {
+                              item.quantity
+                            }
                           </b>
 
                           <button
-                            type="button"
-                            disabled={
-                              item.quantity >=
-                              50
-                            }
                             onClick={() =>
                               changeQty(
                                 {
@@ -4291,9 +4058,14 @@ export function KioskPage() {
                                 1
                               )
                             }
-                            aria-label="Increase quantity"
+                            disabled={
+                              item.quantity >=
+                              50
+                            }
                           >
-                            <Plus size={15} />
+                            <Plus
+                              size={15}
+                            />
                           </button>
                         </div>
                       </div>
@@ -4308,9 +4080,7 @@ export function KioskPage() {
 
               <div className="cafe-drawer-bottom">
                 <div>
-                  <span>
-                    Tax
-                  </span>
+                  <span>Tax</span>
 
                   <strong>
                     ₹0.00
@@ -4328,10 +4098,9 @@ export function KioskPage() {
                 </div>
 
                 <button
-                  type="button"
                   className="cafe-primary cafe-full"
                   disabled={
-                    quantity === 0 ||
+                    !quantity ||
                     !franchiseId
                   }
                   onClick={() => {
