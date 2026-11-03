@@ -1,46 +1,22 @@
-
 const mongoose = require("mongoose");
-
-// ============================================
-// PAYMENT SCHEMA
-// ============================================
 
 const paymentSchema = new mongoose.Schema(
   {
-    // ========================================
-    // ORDER REFERENCE
-    // ========================================
-
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
       required: true,
     },
-
-    // ========================================
-    // GUEST PAYMENT — LOGIN NOT REQUIRED
-    // ========================================
-
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
-
-    // ========================================
-    // PAYMENT AMOUNT — NO TAX
-    // ========================================
-
     amount: {
       type: Number,
       required: true,
       min: 0,
     },
-
-    // ========================================
-    // PAYMENT METHOD
-    // ========================================
-
     paymentMethod: {
       type: String,
       enum: [
@@ -54,60 +30,47 @@ const paymentSchema = new mongoose.Schema(
       ],
       required: true,
     },
-
-    // ========================================
-    // PAYMENT STATUS
-    // ========================================
-
     status: {
       type: String,
-      enum: [
-        "Initiated",
-        "Processing",
-        "Completed",
-        "Failed",
-        "Refunded",
-      ],
+      enum: ["Initiated", "Processing", "Completed", "Failed", "Refunded"],
       default: "Initiated",
     },
-
-    // ========================================
-    // INTERNAL PAYMENT ID
-    // ========================================
-
     paymentId: {
       type: String,
       unique: true,
     },
+    gatewayOrderId: { type: String, default: "" },
 
-    // ========================================
-    // RAZORPAY ORDER ID
-    // ========================================
-
-    gatewayOrderId: {
+    // Each UPI QR is uniquely associated with a guest order.
+    gatewayQrId: {
       type: String,
       default: "",
     },
-
-    // ========================================
-    // TRANSACTION REFERENCE
-    // ========================================
+    gatewayQrImageUrl: {
+      type: String,
+      default: "",
+    },
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
 
     transactionId: {
       type: String,
       default: "",
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// ============================================
-// EXPORT PAYMENT MODEL
-// ============================================
-
-module.exports = mongoose.model(
-  "Payment",
-  paymentSchema
+// Uniqueness for real gateway IDs, ignoring default empty values.
+paymentSchema.index(
+  { transactionId: 1 },
+  { unique: true, partialFilterExpression: { transactionId: { $gt: "" } } }
 );
+paymentSchema.index(
+  { gatewayQrId: 1 },
+  { unique: true, partialFilterExpression: { gatewayQrId: { $gt: "" } } }
+);
+
+module.exports = mongoose.model("Payment", paymentSchema);

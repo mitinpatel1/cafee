@@ -38,7 +38,7 @@ import {
 // NO SEPARATE CSS FILE REQUIRED
 // ======================================================
 
-const PAYMENT_TIMEOUT_MS = 60 * 1000;
+const PAYMENT_TIMEOUT_MS = 2 * 60 * 1000;
 
 const SESSION_KEY = "officebite_active_guest_order_v3";
 
@@ -908,6 +908,17 @@ const KIOSK_STYLES = String.raw`
 
 .cafe-full {
   width: 100%;
+}
+
+.cafe-kiosk .cafe-cancel-payment {
+  margin-top: 16px;
+  border: 1px solid #db4545;
+  color: #b83333;
+  background: #fff8f8;
+}
+
+.cafe-kiosk .cafe-cancel-payment:hover:not(:disabled) {
+  background: #ffe8e8;
 }
 
 .cafe-back {
@@ -1833,6 +1844,7 @@ export function KioskPage() {
 
   const [onlineEnabled, setOnlineEnabled] =
     useState(false);
+  const [upiEnabled, setUpiEnabled] = useState(false);
 
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
@@ -1864,7 +1876,7 @@ export function KioskPage() {
 
   const [paymentSeconds, setPaymentSeconds] =
     useState(() => {
-      if (!restoredOrder) return 60;
+      if (!restoredOrder) return 120;
 
       const elapsed =
         Date.now() - restoredOrder.createdAtMs;
@@ -1967,6 +1979,7 @@ export function KioskPage() {
         );
 
         setOnlineEnabled(enabled);
+        setUpiEnabled(Boolean(data.upiEnabled));
 
         if (!activeOrderRef.current) {
           setMethod(
@@ -2158,8 +2171,7 @@ export function KioskPage() {
 
   // ====================================================
   // RESET KIOSK
-  // CALLED AFTER VERIFIED ADMIN CONFIRMATION
-  // OR AN UNPAID TIMEOUT
+  // Only after backend-confirmed cancellation or confirmed order completion
   // ====================================================
 
   const reset = useCallback(() => {
@@ -2189,7 +2201,7 @@ export function KioskPage() {
     setActiveOrder(null);
     setSeatChoice(null);
 
-    setPaymentSeconds(60);
+    setPaymentSeconds(120);
 
     setSeats({
       capacity: 0,
@@ -2197,6 +2209,9 @@ export function KioskPage() {
       occupied: [],
     });
 
+    setUpiQr(null);
+    setUpiQrLoading(false);
+    setUpiQrError("");
     setError("");
     setScreen("menu");
 
@@ -2232,9 +2247,10 @@ export function KioskPage() {
       setActiveOrder((current) => {
         if (
           !current ||
-          current.order.trackingCode !==
-          trackingCode
+          current.order.trackingCode !== trackingCode ||
+          (isPaid(current.order) && !isPaid(serverOrder))
         ) {
+          // Once paid, ignore an older pending status response.
           return current;
         }
 
@@ -2298,45 +2314,43 @@ export function KioskPage() {
   const loadUpiQr = useCallback(async (order, orderKey) => {
     if (!order?._id || !orderKey) return;
 
+    setUpiQr(null);
     setUpiQrLoading(true);
     setUpiQrError("");
 
     try {
-      const response = await api(
-        `/kiosk/orders/${order._id}/upi-qr`,
-        {
-          headers: {
-            "x-kiosk-order-key": orderKey,
-          },
-        }
-      );
+      const response = await api(`/kiosk/orders/${order._id}/upi-qr`, {
+        method: "POST",
+        headers: { "x-kiosk-order-key": orderKey },
+      });
 
       if (
         !response.qrDataUrl ||
-        !response.qrDataUrl.startsWith("data:image/")
-      ) {
-        throw new Error("QR image not received from server.");
-      }
+        !response.qrDataUrl.startsWith("https://")
+      ) throw new Error("Secure payment QR image was not received.");
 
+      if (activeOrderRef.current?.order?._id !== order._id) return;
       setUpiQr(response);
     } catch (err) {
+      if (activeOrderRef.current?.order?._id !== order._id) return;
       setUpiQr(null);
-      setUpiQrError(
-        err.message || "Unable to generate UPI QR."
-      );
+      setUpiQrError(err.message);
     } finally {
-      setUpiQrLoading(false);
+      if (activeOrderRef.current?.order?._id === order._id) {
+        setUpiQrLoading(false);
+      }
     }
   }, []);
 
-  // Load QR automatically after UPI order creation
-  // and when restoring a pending order after refresh.
+  // Load the gateway-provided QR once per active pending order,
+  // and restore it safely after a refresh.
   useEffect(() => {
     if (
       screen !== "status" ||
       !activeOrder ||
       activeOrder.method !== "Counter UPI" ||
-      isPaid(activeOrder.order)
+      isPaid(activeOrder.order) ||
+      activeOrder.order.status === "Cancelled"
     ) {
       return;
     }
@@ -2348,6 +2362,7 @@ export function KioskPage() {
     activeOrder?.key,
     activeOrder?.method,
     activeOrder?.order?.paymentStatus,
+    activeOrder?.order?.status,
     loadUpiQr,
   ]);
 
@@ -2358,47 +2373,84 @@ export function KioskPage() {
   // ====================================================
 
   useEffect(() => {
-    if (
-      screen !== "status" ||
-      !activeOrder?.order?.trackingCode
-    ) {
-      return;
-    }
+    if (screen !== "status" || !activeOrder?.order?.trackingCode) return;
 
-    const code =
-      activeOrder.order.trackingCode;
-
+    const code = activeOrder.order.trackingCode;
     let mounted = true;
 
     const sync = async () => {
       try {
         await refreshOrder(code);
-
-        if (mounted) {
-          setError("");
-        }
+        if (mounted) setError("");
       } catch {
-        // Keep the customer on the current
-        // order screen during network errors.
-        // Do not redirect them to the menu.
+        // Keep the current order on screen during a network outage.
       }
     };
 
-    sync();
+    void sync();
+    const interval = setInterval(sync, 2500);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [screen, activeOrder?.order?.trackingCode, refreshOrder]);
 
-    const interval = setInterval(
-      sync,
-      2500
-    );
+  // Verified QR payments go straight to customer seat selection.
+  // Scanning a QR or entering a UPI reference is NOT proof of payment.
+  useEffect(() => {
+    if (
+      screen !== "status" ||
+      activeOrder?.method !== "Counter UPI" ||
+      !activeOrder?.order?._id ||
+      isPaid(activeOrder.order) ||
+      activeOrder.order.status === "Cancelled"
+    ) return;
 
+    const { _id } = activeOrder.order;
+    const orderKey = activeOrder.key;
+    let mounted = true;
+
+    const verifyQrPayment = async () => {
+      try {
+        const response = await api(`/kiosk/orders/${_id}/upi-status`, {
+          headers: { "x-kiosk-order-key": orderKey },
+        });
+        if (!mounted || !response.order) return;
+
+        const current = activeOrderRef.current;
+        if (
+          !current ||
+          current.order._id !== _id ||
+          (isPaid(current.order) && !isPaid(response.order))
+        ) return;
+
+        const updated = {
+          ...current,
+          order: { ...current.order, ...response.order },
+        };
+        activeOrderRef.current = updated;
+        saveKioskOrder(updated);
+        setActiveOrder(updated);
+      } catch (err) {
+        // Never infer failure or cancel a potentially paid order on
+        // temporary gateway/network errors.
+        console.error("UPI gateway verification:", err);
+      }
+    };
+
+    void verifyQrPayment();
+    const interval = setInterval(verifyQrPayment, 3000);
     return () => {
       mounted = false;
       clearInterval(interval);
     };
   }, [
     screen,
-    activeOrder?.order?.trackingCode,
-    refreshOrder,
+    activeOrder?.order?._id,
+    activeOrder?.order?.paymentStatus,
+    activeOrder?.order?.status,
+    activeOrder?.method,
+    activeOrder?.key,
   ]);
 
   // ====================================================
@@ -2451,18 +2503,14 @@ export function KioskPage() {
   ]);
 
   // ====================================================
-  // ADMIN CONFIRMATION
-  // ONLY RETURN TO MENU AFTER:
-  // 1. PAYMENT VERIFIED
-  // 2. CUSTOMER SEAT SELECTED
-  // 3. ADMIN CONFIRMED THE ORDER
+  // FINISH AFTER CUSTOMER SEAT SELECTION
+  // Gateway-paid QR orders are auto-confirmed by the backend.
+  // Cash orders continue to require admin confirmation.
   // ====================================================
 
   useEffect(() => {
     if (screen !== "status") return;
-
     const order = activeOrder?.order;
-
     if (!order) return;
 
     if (order.status === "Cancelled") {
@@ -2470,20 +2518,23 @@ export function KioskPage() {
       return;
     }
 
-    const adminConfirmed =
-      ADMIN_CONFIRMED_STATUSES.includes(
-        order.status
-      );
-
     if (
-      adminConfirmed &&
-      isPaid(order) &&
-      hasSeat(order)
-    ) {
-      reset();
+      !isPaid(order) ||
+      !hasSeat(order) ||
+      !ADMIN_CONFIRMED_STATUSES.includes(order.status)
+    ) return;
+
+    if (activeOrder.method === "Counter UPI") {
+      // Let the customer see the selected seat before the next user.
+      const timer = setTimeout(reset, 5000);
+      return () => clearTimeout(timer);
     }
+
+    // Preserve existing confirmation flow for cash and online checkout.
+    reset();
   }, [
     screen,
+    activeOrder?.method,
     activeOrder?.order?.status,
     activeOrder?.order?.paymentStatus,
     activeOrder?.order?.seatNumber,
@@ -2491,93 +2542,90 @@ export function KioskPage() {
   ]);
 
   // ====================================================
-  // CHECK 60-SECOND PAYMENT TIMEOUT
+  // SAFE CUSTOMER CANCELLATION / 2-MINUTE TIMEOUT
+  // Do not discard the order unless the backend confirms cancellation.
   // ====================================================
 
-  const checkPaymentTimeout = useCallback(
-    async () => {
-      const current =
-        activeOrderRef.current;
+  const cancelPendingPayment = useCallback(async (reason) => {
+    const current = activeOrderRef.current;
+    if (!current || isPaid(current.order)) return false;
 
-      if (
-        !current ||
-        isPaid(current.order) ||
-        timeoutCheckingRef.current
-      ) {
-        return;
+    const response = await api(
+      `/kiosk/orders/${current.order._id}/cancel-payment`,
+      {
+        method: "POST",
+        headers: { "x-kiosk-order-key": current.key },
+        body: JSON.stringify({ reason }),
       }
+    );
 
-      // Avoid repeated network requests
-      // every second at zero.
-      if (
-        Date.now() -
-        lastTimeoutAttemptRef.current <
-        8000
-      ) {
-        return;
-      }
+    if (response.cancelled) {
+      // Another customer may now use the kiosk.
+      if (activeOrderRef.current?.order?._id === current.order._id) reset();
+      return true;
+    }
+    return false;
+  }, [reset]);
 
-      timeoutCheckingRef.current = true;
-      lastTimeoutAttemptRef.current = Date.now();
+  const checkPaymentTimeout = useCallback(async () => {
+    const current = activeOrderRef.current;
+    if (
+      !current ||
+      isPaid(current.order) ||
+      timeoutCheckingRef.current ||
+      Date.now() - lastTimeoutAttemptRef.current < 8000
+    ) return;
 
-      const code =
-        current.order.trackingCode;
+    timeoutCheckingRef.current = true;
+    lastTimeoutAttemptRef.current = Date.now();
 
-      try {
+    try {
+      // First reconcile the live payment status, particularly for QR.
+      if (current.method === "Counter UPI") {
         const result = await api(
-          `/kiosk/track/${encodeURIComponent(
-            code
-          )}`
+          `/kiosk/orders/${current.order._id}/upi-status`,
+          { headers: { "x-kiosk-order-key": current.key } }
         );
-
-        const currentOrder =
-          activeOrderRef.current;
-
-        if (
-          !currentOrder ||
-          currentOrder.order.trackingCode !==
-          code
-        ) {
+        if (isPaid(result.order)) {
+          await refreshOrder(current.order.trackingCode);
           return;
         }
-
-        if (
-          isPaid(result.order) ||
-          isPaid(currentOrder.order)
-        ) {
-          const updated = {
-            ...currentOrder,
-            order: {
-              ...currentOrder.order,
-              ...result.order,
-              paymentStatus: "Paid",
-            },
-          };
-
-          activeOrderRef.current = updated;
-
-          setActiveOrder(updated);
-          saveKioskOrder(updated);
-
-          return;
-        }
-
-        // Payment is still not verified
-        // after 60 seconds.
-        reset();
-      } catch {
-        // Server may be temporarily offline.
-        // Keep order on screen rather than
-        // accidentally losing a paid order.
-        setError(
-          "Unable to verify payment status. The order will stay here until the server responds."
-        );
-      } finally {
-        timeoutCheckingRef.current = false;
+      } else {
+        const tracked = await refreshOrder(current.order.trackingCode);
+        if (isPaid(tracked)) return;
       }
-    },
-    [reset]
-  );
+
+      // The backend rechecks the gateway before closing/cancelling.
+      await cancelPendingPayment("Payment window expired after 2 minutes");
+    } catch (err) {
+      setError(
+        err.message ||
+          "Could not verify payment. Your order remains on screen for safety."
+      );
+      await refreshOrder(current.order.trackingCode).catch(() => {});
+    } finally {
+      timeoutCheckingRef.current = false;
+    }
+  }, [cancelPendingPayment, refreshOrder]);
+
+  async function handleCancelPayment() {
+    const current = activeOrderRef.current;
+    if (!current || isPaid(current.order) || lock.current) return;
+    if (!window.confirm("Cancel this payment and order?")) return;
+
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await cancelPendingPayment("Cancelled by customer");
+    } catch (err) {
+      setError(err.message || "Cancellation could not be verified.");
+      await refreshOrder(current.order.trackingCode).catch(() => {});
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
 
   // ====================================================
   // PAYMENT COUNTDOWN
@@ -2829,7 +2877,7 @@ export function KioskPage() {
       setCart([]);
       setCartOpen(false);
 
-      setPaymentSeconds(60);
+      setPaymentSeconds(120);
       setScreen("status");
 
       // Online payment.
@@ -3033,16 +3081,16 @@ export function KioskPage() {
     },
 
 
-    {
-      value: "Counter UPI",
-      label: "Scan UPI QR",
-      description: "Scan QR code to complete your payment",
-      icon: QrCode,
-    },
+    ...(upiEnabled
+      ? [{
+          value: "Counter UPI",
+          label: "Scan UPI QR",
+          description: "Automatically verified payment · 2 minutes",
+          icon: QrCode,
+        }]
+      : []),
 
   ];
-  // Payment radio input
-  const [value, setValue] = useState("");
   // ====================================================
   // CURRENT ORDER STATE
   // ====================================================
@@ -3138,7 +3186,7 @@ export function KioskPage() {
             "Choose food",
             "Payment",
             "Pick your seat",
-            "Admin confirms",
+            method === "Counter UPI" ? "Order confirmed" : "Admin confirms",
           ].map((name, index) => (
             <div
               key={name}
@@ -3567,8 +3615,8 @@ export function KioskPage() {
                     <label
                       key={value}
                       className={`cafe-payment ${method === value
-                          ? "selected"
-                          : ""
+                        ? "selected"
+                        : ""
                         }`}
                     >
                       <input
@@ -3698,8 +3746,8 @@ export function KioskPage() {
               <section className="cafe-panel cafe-status-panel">
                 <div
                   className={`cafe-status-icon ${paymentComplete
-                      ? "paid"
-                      : ""
+                    ? "paid"
+                    : ""
                     }`}
                 >
                   {seatConfirmed ? (
@@ -3713,7 +3761,9 @@ export function KioskPage() {
 
                 <p className="cafe-kicker">
                   {seatConfirmed
-                    ? "WAITING FOR ADMIN"
+                    ? activeOrder.method === "Counter UPI"
+                      ? "ORDER CONFIRMED"
+                      : "WAITING FOR ADMIN"
                     : paymentComplete
                       ? "PAYMENT CONFIRMED"
                       : "PAYMENT PENDING"}
@@ -3721,7 +3771,9 @@ export function KioskPage() {
 
                 <h1>
                   {seatConfirmed
-                    ? "Seat saved. Almost ready!"
+                    ? activeOrder.method === "Counter UPI"
+                      ? "Order confirmed!"
+                      : "Seat saved. Almost ready!"
                     : paymentComplete
                       ? "Choose your seat"
                       : "Complete your payment"}
@@ -3729,10 +3781,12 @@ export function KioskPage() {
 
                 <p className="cafe-subtitle">
                   {seatConfirmed
-                    ? "Your seat is saved. The menu will open automatically after admin confirmation."
+                    ? activeOrder.method === "Counter UPI"
+                      ? "Payment and seat confirmed! Your order is being prepared. The menu will reopen shortly."
+                      : "Your seat is saved. The menu will open after admin confirms the order."
                     : paymentComplete
-                      ? "Select an available seat. Refreshing this page will keep you here until your seat is confirmed."
-                      : "Complete payment within one minute to continue to seat selection."}
+                      ? "Payment verified. Choose an available seat yourself; no admin seat assignment is needed."
+                      : "Complete payment within two minutes to continue to seat selection."}
                 </p>
 
                 <div className="cafe-order-meta">
@@ -3777,7 +3831,12 @@ export function KioskPage() {
                         Scan this QR using any supported UPI app.
                       </p>
 
-                      {upiQrLoading ? (
+                      {paymentSeconds === 0 ? (
+                        <div className="cafe-qr-loading">
+                          <Clock3 size={28} />
+                          <p>Payment time ended. Verifying your transaction before closing this session...</p>
+                        </div>
+                      ) : upiQrLoading ? (
                         <div className="cafe-qr-loading">
                           <RefreshCw
                             size={28}
@@ -3829,10 +3888,9 @@ export function KioskPage() {
                       <div className="cafe-hint">
                         <ShieldCheck size={18} />
 
-                        After making payment, please provide
-                        your transaction reference to the cashier.
-                        Seat selection unlocks after admin
-                        verifies the payment.
+                        Payment is checked automatically with Razorpay.
+                        After successful verification, choose your own seat.
+                        No admin confirmation is required for QR payment.
                       </div>
                     </div>
                   )}
@@ -3851,17 +3909,15 @@ export function KioskPage() {
                     </div>
 
                     <strong>
-                      {`00:${String(
-                        paymentSeconds
+                      {`${String(Math.floor(paymentSeconds / 60)).padStart(2, "0")}:${String(
+                        paymentSeconds % 60
                       ).padStart(2, "0")}`}
                     </strong>
 
                     <div className="cafe-deadline-track">
                       <span
                         style={{
-                          width: `${(paymentSeconds / 60) *
-                            100
-                            }%`,
+                          width: `${(paymentSeconds / 120) * 100}%`,
                         }}
                       />
                     </div>
@@ -3872,10 +3928,11 @@ export function KioskPage() {
                   <div className="cafe-hint">
                     <ShieldCheck size={19} />
 
-                    {activeOrder.method ===
-                      "Online (Razorpay)"
-                      ? "Please complete your secure online payment."
-                      : "Please pay at the counter. Admin will verify your payment."}
+                    {activeOrder.method === "Counter UPI"
+                      ? "Scan and pay. Your payment will be verified automatically."
+                      : activeOrder.method === "Online (Razorpay)"
+                        ? "Please complete your secure online payment."
+                        : "Pay cash at the counter. Admin will confirm your payment."}
                   </div>
                 )}
 
@@ -3895,6 +3952,18 @@ export function KioskPage() {
                       Retry online payment
                     </button>
                   )}
+
+                {!paymentComplete && (
+                  <button
+                    type="button"
+                    className="cafe-secondary cafe-full cafe-cancel-payment"
+                    onClick={handleCancelPayment}
+                    disabled={busy}
+                  >
+                    <X size={18} />
+                    {busy ? "Processing..." : "Cancel Payment"}
+                  </button>
+                )}
 
                 {/* =================================
                     CUSTOMER SEAT SELECTION
@@ -3961,9 +4030,9 @@ export function KioskPage() {
                               type="button"
                               key={number}
                               className={`cafe-seat ${seatChoice ===
-                                  number
-                                  ? "chosen"
-                                  : ""
+                                number
+                                ? "chosen"
+                                : ""
                                 } ${!available
                                   ? "occupied"
                                   : ""
@@ -4095,14 +4164,15 @@ export function KioskPage() {
                     </h2>
 
                     <p>
-                      Your order is waiting
-                      for admin confirmation.
+                      {activeOrder.method === "Counter UPI"
+                        ? "Payment verified. Your order is confirmed automatically."
+                        : "Your order is waiting for admin confirmation."}
                     </p>
 
                     <small>
-                      Refreshing this page
-                      will not return you
-                      to the menu.
+                      {activeOrder.method === "Counter UPI"
+                        ? "Returning to the menu shortly."
+                        : "Refreshing will keep this order on screen until confirmation."}
                     </small>
                   </div>
                 )}

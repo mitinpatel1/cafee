@@ -3,12 +3,17 @@
 
 const express = require("express");
 const crypto = require("crypto");
-const QRCode = require("qrcode");
 
 const Order = require("../models/Order");
 const Payment = require("../models/Payment");
 const Franchise = require("../models/Franchise");
 const MenuItem = require("../models/MenuItem");
+
+
+const QR_PAYMENT_TIMEOUT_MS = 2 * 60 * 1000;
+// Minimum QR expiry is 120 seconds after QR creation.
+// The kiosk deadline still starts when the order is created.
+
 
 const {
   listSeats,
@@ -31,19 +36,6 @@ const onlineConfigured = () =>
     process.env.RAZORPAY_KEY_ID &&
     process.env.RAZORPAY_KEY_SECRET
   );
-
-const upiVpa = () =>
-  String(process.env.UPI_VPA || "").trim();
-
-const upiConfigured = () =>
-  /^[A-Za-z0-9._-]{2,100}@[A-Za-z][A-Za-z0-9.-]{1,100}$/.test(
-    upiVpa()
-  );
-
-const upiPayee = () =>
-  String(
-    process.env.UPI_PAYEE_NAME || "OfficeBite"
-  ).trim().slice(0, 60) || "OfficeBite";
 
 const hash = (value) =>
   crypto
@@ -77,8 +69,10 @@ function matchingSignature(expected, received) {
 
 function publicOrder(order) {
   return {
+    _id: order._id,
     orderNumber: order.orderNumber,
     trackingCode: order.trackingCode,
+    paymentMethod: order.paymentMethod,
     status: order.status,
     paymentStatus: order.paymentStatus,
     seatNumber: order.seatNumber || null,
@@ -300,14 +294,15 @@ router.post(
 
       if (
         paymentMethod === "Counter UPI" &&
-        !upiConfigured()
+        !onlineConfigured()
       ) {
         return fail(
           res,
           503,
-          "UPI payment is not configured. Add UPI_VPA to backend/.env."
+          "Automatic UPI QR payment requires Razorpay configuration."
         );
       }
+
 
       const franchise = await Franchise.findOne({
         _id: franchiseId,
@@ -477,13 +472,16 @@ router.post(
 // CONFIGURATION
 // ============================================
 
+
 router.get("/config", (_req, res) => {
   res.json({
     success: true,
     onlineEnabled: onlineConfigured(),
-    upiEnabled: upiConfigured(),
+    upiEnabled: onlineConfigured(),
+    paymentTimeoutSeconds: QR_PAYMENT_TIMEOUT_MS / 1000,
   });
 });
+
 
 // ============================================
 // ORDER TRACKING
@@ -539,6 +537,124 @@ router.get(
     }
   }
 );
+
+// ============================================
+// CAPTURED QR PAYMENT RECONCILIATION
+// ============================================
+
+async function applyCapturedQrPayment(req, payment, captured) {
+  if (!payment || !captured) return null;
+
+  const order = await Order.findById(payment.orderId);
+  if (!order) return null;
+
+  if (
+    order.paymentMethod !== "Counter UPI" ||
+    payment.paymentMethod !== "Counter UPI" ||
+    !captured.id ||
+    captured.status !== "captured" ||
+    captured.currency !== "INR" ||
+    captured.amount !== paise(order.total) ||
+    paise(payment.amount) !== paise(order.total) ||
+    (captured.method && captured.method !== "upi")
+  ) {
+    return order;
+  }
+
+  const alreadyUsed = await Payment.findOne({
+    transactionId: captured.id,
+    _id: { $ne: payment._id },
+  });
+  if (alreadyUsed) {
+    throw new Error("Gateway transaction was already assigned to another order.");
+  }
+
+  if (payment.transactionId && payment.transactionId !== captured.id) {
+    throw new Error("Conflicting QR payment transaction.");
+  }
+
+  // Idempotent: polling and webhook may arrive at the same time.
+  await Payment.updateOne(
+    {
+      _id: payment._id,
+      transactionId: { $in: ["", captured.id] },
+      status: { $ne: "Refunded" },
+    },
+    {
+      $set: {
+        status: "Completed",
+        transactionId: captured.id,
+      },
+    }
+  );
+
+  const updated = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      status: "Pending",
+      paymentStatus: "Pending",
+    },
+    {
+      $set: {
+        paymentStatus: "Paid",
+        counterPaymentReference: captured.id,
+        pickupTime: "Choose your seat",
+      },
+    },
+    { new: true }
+  );
+
+  if (updated) {
+    notify(req, updated);
+    return updated;
+  }
+
+  const latest = await Order.findById(order._id);
+  if (latest?.status === "Cancelled") {
+    console.error(
+      "LATE CAPTURE: cancelled QR order requires refund reconciliation:",
+      order.orderNumber,
+      captured.id
+    );
+  }
+  return latest;
+}
+
+async function syncQrPayment(req, payment) {
+  if (!payment?.gatewayQrId) {
+    return Order.findById(payment.orderId);
+  }
+
+  const response = await razorpay(
+    `payments/qr_codes/${encodeURIComponent(payment.gatewayQrId)}/payments?count=100`
+  );
+  const captured = (response.items || []).find(
+    (item) =>
+      item.status === "captured" &&
+      item.currency === "INR" &&
+      item.amount === paise(payment.amount)
+  );
+
+  if (!captured) return Order.findById(payment.orderId);
+  return applyCapturedQrPayment(req, payment, captured);
+}
+
+async function closeUnpaidQr(payment) {
+  if (!payment?.gatewayQrId) return;
+  try {
+    await razorpay(
+      `payments/qr_codes/${encodeURIComponent(payment.gatewayQrId)}/close`,
+      "POST"
+    );
+  } catch (error) {
+    // Closing an already-closed QR is safe to retry, but a gateway error
+    // must NOT be treated as successful cancellation.
+    const qr = await razorpay(
+      `payments/qr_codes/${encodeURIComponent(payment.gatewayQrId)}`
+    );
+    if (qr.status !== "closed") throw error;
+  }
+}
 
 // ============================================
 // AVAILABLE SEATS
@@ -617,10 +733,39 @@ router.post(
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const order = await assignSeatByCustomer(
+      let order = await assignSeatByCustomer(
         req.guestOrder._id,
         req.body?.seatNumber
       );
+
+      // Only verified QR orders are automatically accepted after
+      // the CUSTOMER selects a seat. Cash still follows admin review.
+      if (
+        order.paymentMethod === "Counter UPI" &&
+        order.paymentStatus === "Paid" &&
+        order.status === "Pending" &&
+        order.seatNumber
+      ) {
+        order =
+          (await Order.findOneAndUpdate(
+            {
+              _id: order._id,
+              paymentMethod: "Counter UPI",
+              paymentStatus: "Paid",
+              status: "Pending",
+              seatNumber: order.seatNumber,
+            },
+            {
+              $set: {
+                status: "Confirmed",
+                readyInMinutes: 15,
+                estimatedReadyTime: new Date(Date.now() + 15 * 60 * 1000),
+                pickupTime: "Ready in about 15 minutes",
+              },
+            },
+            { new: true }
+          )) || (await Order.findById(order._id));
+      }
 
       notify(req, order);
 
@@ -647,205 +792,236 @@ router.post(
 );
 
 // ============================================
-// UPI QR CODE GENERATION
+// DYNAMIC RAZORPAY UPI QR (AUTO-VERIFIED)
 // ============================================
 
-// QR generation is allowed only for an
-// authenticated guest order with pending UPI payment.
+async function createUpiQr(req, res) {
+  try {
+    const order = await Order.findById(req.guestOrder._id);
+    if (
+      !order ||
+      order.paymentMethod !== "Counter UPI" ||
+      order.status !== "Pending" ||
+      order.paymentStatus !== "Pending"
+    ) {
+      return fail(res, 409, "This order is not eligible for a QR payment.");
+    }
+    if (!onlineConfigured()) {
+      return fail(res, 503, "Razorpay is not configured.");
+    }
 
+    const deadline = new Date(order.createdAt).getTime() + QR_PAYMENT_TIMEOUT_MS;
+    if (Date.now() >= deadline) {
+      return fail(res, 409, "The two-minute payment window has expired.");
+    }
+
+    let payment = await Payment.findOne({
+      orderId: order._id,
+      paymentMethod: "Counter UPI",
+      gatewayQrId: { $exists: true, $nin: [null, ""] },
+    }).sort({ createdAt: -1 });
+
+    if (!payment) {
+      // Razorpay requires close_by to be at least 120s from QR creation.
+      // Kiosk still enforces the order's two-minute checkout deadline.
+      const closeBy = Math.ceil(Date.now() / 1000) + 125;
+      const qr = await razorpay("payments/qr_codes", "POST", {
+        type: "upi_qr",
+        name: `OfficeBite ${order.orderNumber}`.slice(0, 40),
+        usage: "single_use",
+        fixed_amount: true,
+        payment_amount: paise(order.total),
+        close_by: closeBy,
+        description: `OfficeBite order ${order.orderNumber}`.slice(0, 255),
+        notes: { officebiteOrderId: String(order._id) },
+      });
+
+      if (!qr?.id || !qr?.image_url || qr.status !== "active") {
+        return fail(res, 502, "Razorpay did not provide an active QR code.");
+      }
+
+      // If the customer cancelled while the gateway request was in flight,
+      // close the new QR instead of presenting it as payable.
+      const latest = await Order.findById(order._id);
+      if (
+        latest.status !== "Pending" ||
+        latest.paymentStatus !== "Pending" ||
+        Date.now() >= deadline
+      ) {
+        await closeUnpaidQr({ gatewayQrId: qr.id });
+        return fail(res, 409, "Order expired or was cancelled.");
+      }
+
+      payment = await Payment.create({
+        orderId: order._id,
+        userId: null,
+        amount: order.total,
+        paymentMethod: "Counter UPI",
+        status: "Initiated",
+        paymentId: `QR-${crypto.randomBytes(12).toString("hex")}`,
+        gatewayQrId: qr.id,
+        gatewayQrImageUrl: qr.image_url,
+        expiresAt: new Date(Number(qr.close_by || closeBy) * 1000),
+      });
+    }
+
+    return res.json({
+      success: true,
+      qrDataUrl: payment.gatewayQrImageUrl,
+      qrId: payment.gatewayQrId,
+      amount: payment.amount,
+      currency: "INR",
+      payeeName: "OfficeBite",
+      orderNumber: order.orderNumber,
+      verification: "Automatic Razorpay verification",
+      paymentDeadlineAt: new Date(deadline).toISOString(),
+      expiresAt: payment.expiresAt,
+    });
+  } catch (error) {
+    console.error("Kiosk dynamic QR:", error);
+    return fail(res, 502, error.message || "Unable to generate payment QR.");
+  }
+}
+
+// GET is kept for compatibility with the current KioskPage.jsx.
+// Prefer POST for new frontend integrations because QR creation has side effects.
 router.get(
   "/orders/:id/upi-qr",
   throttle(90, 5 * 60 * 1000),
   ownedGuestOrder,
+  createUpiQr
+);
+router.post(
+  "/orders/:id/upi-qr",
+  throttle(90, 5 * 60 * 1000),
+  ownedGuestOrder,
+  createUpiQr
+);
+
+// Frontend polling: never infer payment from a scanned QR or typed UTR.
+router.get(
+  "/orders/:id/upi-status",
+  throttle(180, 5 * 60 * 1000),
+  ownedGuestOrder,
   async (req, res) => {
     try {
-      const order = await Order.findById(
-        req.guestOrder._id
-      );
-
-      if (
-        !order ||
-        order.paymentMethod !== "Counter UPI"
-      ) {
-        return fail(
-          res,
-          409,
-          "This order does not use Counter UPI."
-        );
+      const order = await Order.findById(req.guestOrder._id);
+      if (!order || order.paymentMethod !== "Counter UPI") {
+        return fail(res, 404, "UPI order not found.");
       }
 
-      if (
-        ["Cancelled", "Picked Up"].includes(
-          order.status
-        ) ||
-        order.paymentStatus !== "Pending"
-      ) {
-        return fail(
-          res,
-          409,
-          "UPI QR is unavailable for this order."
-        );
+      if (order.paymentStatus === "Paid" || order.status === "Cancelled") {
+        return res.json({
+          success: true,
+          paid: order.paymentStatus === "Paid",
+          order: publicOrder(order),
+        });
       }
 
-      if (!upiConfigured()) {
-        return fail(
-          res,
-          503,
-          "UPI QR is not configured on the server."
-        );
-      }
-
-      const amount = money(order.total);
-
-      if (
-        !Number.isFinite(amount) ||
-        amount <= 0
-      ) {
-        return fail(
-          res,
-          400,
-          "Invalid order amount."
-        );
-      }
-
-      // Amount and merchant UPI ID are
-      // taken from trusted backend data.
-
-      const params = new URLSearchParams({
-        pa: upiVpa(),
-        pn: upiPayee(),
-        am: amount.toFixed(2),
-        cu: "INR",
-        tn: `OfficeBite ${order.orderNumber}`.slice(
-          0,
-          80
-        ),
-      });
-
-      const uri = `upi://pay?${params.toString()}`;
-
-      // FIX: await is inside this async route.
-
-      const qrDataUrl = await QRCode.toDataURL(
-        uri,
-        {
-          errorCorrectionLevel: "M",
-          width: 300,
-          margin: 2,
-
-          color: {
-            dark: "#173b33",
-            light: "#ffffff",
-          },
-        }
-      );
-
+      const payment = await Payment.findOne({
+        orderId: order._id,
+        gatewayQrId: { $exists: true, $nin: [null, ""] },
+      }).sort({ createdAt: -1 });
+      const updated = payment ? await syncQrPayment(req, payment) : order;
       return res.json({
         success: true,
-
-        qrDataUrl,
-        uri,
-        amount,
-        currency: "INR",
-
-        payeeName: upiPayee(),
-        orderNumber: order.orderNumber,
-
-        submittedReference:
-          order.counterPaymentReference || "",
-
-        verification:
-          "Manual admin payment verification required",
+        paid: updated.paymentStatus === "Paid",
+        order: publicOrder(updated),
       });
     } catch (error) {
-      console.error("Kiosk UPI QR:", error);
-
-      return fail(
-        res,
-        500,
-        "Could not generate UPI QR."
-      );
+      console.error("QR status check:", error);
+      return fail(res, 502, "Unable to verify QR payment right now.");
     }
   }
 );
 
-// ============================================
-// SUBMIT CUSTOMER UPI REFERENCE
-// ============================================
+// Manual UTR submission is intentionally disabled: it cannot prove payment.
+router.post("/orders/:id/upi-reference", ownedGuestOrder, (_req, res) =>
+  fail(res, 410, "UPI reference entry was replaced with automatic QR verification.")
+);
 
-// Customer submission does NOT mark payment Paid.
-// Admin must verify actual receipt of funds.
-
+// Cancel or time out an UNPAID kiosk order.
+// This route does not refund captured payments.
 router.post(
-  "/orders/:id/upi-reference",
-  throttle(30, 5 * 60 * 1000),
+  "/orders/:id/cancel-payment",
+  throttle(90, 5 * 60 * 1000),
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const reference = String(
-        req.body?.reference || ""
-      ).trim();
-
-      if (
-        !/^[A-Za-z0-9-]{8,40}$/.test(reference)
-      ) {
-        return fail(
-          res,
-          400,
-          "Enter a valid UPI reference (8–40 characters)."
-        );
+      let order = await Order.findById(req.guestOrder._id);
+      if (!order) return fail(res, 404, "Order not found.");
+      if (order.status === "Cancelled") {
+        return res.json({ success: true, cancelled: true, order: publicOrder(order) });
+      }
+      if (order.paymentStatus !== "Pending" || order.status !== "Pending") {
+        return fail(res, 409, "Order already paid or being prepared. Recheck status.");
       }
 
-      const order = await Order.findOneAndUpdate(
-        {
-          _id: req.guestOrder._id,
+      if (order.paymentMethod === "Counter UPI") {
+        const payment = await Payment.findOne({
+          orderId: order._id,
           paymentMethod: "Counter UPI",
-          paymentStatus: "Pending",
+          gatewayQrId: { $exists: true, $nin: [null, ""] },
+        }).sort({ createdAt: -1 });
 
-          status: {
-            $nin: ["Cancelled", "Picked Up"],
-          },
-        },
+        if (payment) {
+          order = await syncQrPayment(req, payment);
+          if (order.paymentStatus === "Paid") {
+            return fail(res, 409, "Payment received. Please choose a seat.");
+          }
+
+          await closeUnpaidQr(payment);
+          order = await syncQrPayment(req, payment);
+          if (order.paymentStatus === "Paid") {
+            return fail(res, 409, "Payment completed during cancellation. Choose a seat.");
+          }
+        }
+      }
+
+      if (order.paymentMethod === "Online (Razorpay)") {
+        const payment = await Payment.findOne({
+          orderId: order._id,
+          gatewayOrderId: { $exists: true, $nin: [null, ""] },
+        }).sort({ createdAt: -1 });
+        if (payment) {
+          const info = await razorpay(
+            `orders/${encodeURIComponent(payment.gatewayOrderId)}/payments`
+          );
+          if (
+            (info.items || []).some(
+              (item) => item.status === "captured" || item.status === "authorized"
+            )
+          ) {
+            return fail(res, 409, "Online payment may have succeeded. Verify before cancelling.");
+          }
+        }
+      }
+
+      const cancelled = await Order.findOneAndUpdate(
+        { _id: order._id, status: "Pending", paymentStatus: "Pending" },
         {
           $set: {
-            counterPaymentReference: reference,
+            status: "Cancelled",
+            cancelReason: String(req.body?.reason || "Cancelled by customer").slice(0, 200),
+            pickupTime: "Cancelled",
           },
         },
-        {
-          new: true,
-          runValidators: true,
-        }
+        { new: true }
       );
 
-      if (!order) {
-        return fail(
-          res,
-          409,
-          "UPI reference cannot be submitted for this order."
-        );
+      if (!cancelled) {
+        return fail(res, 409, "Order status changed. Check payment before retrying.");
       }
 
-      notify(req, order);
-
+      notify(req, cancelled);
       return res.json({
         success: true,
-
-        order: publicOrder(order),
-
-        message:
-          "Reference sent to admin. Wait for payment confirmation.",
+        cancelled: true,
+        order: publicOrder(cancelled),
       });
     } catch (error) {
-      console.error(
-        "Kiosk UPI reference:",
-        error
-      );
-
-      return fail(
-        res,
-        500,
-        "Could not submit UPI reference."
-      );
+      console.error("Cancel kiosk payment:", error);
+      return fail(res, 502, "Cancellation could not be verified. Keep the order open and retry.");
     }
   }
 );
@@ -859,7 +1035,7 @@ router.post(
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const order = req.guestOrder;
+      const order = await Order.findById(req.guestOrder._id);
 
       if (!onlineConfigured()) {
         return fail(
@@ -873,7 +1049,9 @@ router.post(
         order.paymentMethod !==
           "Online (Razorpay)" ||
         order.status === "Cancelled" ||
-        order.paymentStatus === "Paid"
+        order.paymentStatus !== "Pending" ||
+        order.status !== "Pending" ||
+        Date.now() >= new Date(order.createdAt).getTime() + QR_PAYMENT_TIMEOUT_MS
       ) {
         return fail(
           res,
@@ -988,7 +1166,10 @@ router.post(
         );
       }
 
-      const order = req.guestOrder;
+      const order = await Order.findById(req.guestOrder._id);
+      if (!order || order.status === "Cancelled") {
+        return fail(res, 409, "This order was cancelled. Any received funds require refund review.");
+      }
 
       const payment = await Payment.findOne({
         orderId: order._id,
@@ -1079,7 +1260,8 @@ router.post(
       await Order.updateOne(
         {
           _id: order._id,
-          paymentStatus: { $ne: "Paid" },
+          paymentStatus: "Pending",
+          status: { $ne: "Cancelled" },
         },
         {
           $set: {
@@ -1092,6 +1274,10 @@ router.post(
         order._id
       );
 
+      if (updated.status === "Cancelled") {
+        console.error("Late captured online payment requires refund review", updated.orderNumber);
+        return fail(res, 409, "Order cancelled while payment completed. Contact support for refund.");
+      }
       notify(req, updated);
 
       return res.json({
@@ -1161,6 +1347,29 @@ router.post(
       const event = JSON.parse(
         req.body.toString("utf8")
       );
+
+      if (event.event === "qr_code.credited") {
+        const qrId = event.payload?.qr_code?.entity?.id;
+        const captured = event.payload?.payment?.entity;
+
+        if (!qrId || !captured) {
+          return res.status(400).json({ success: false });
+        }
+        const payment = await Payment.findOne({
+          gatewayQrId: qrId,
+          paymentMethod: "Counter UPI",
+        });
+        if (!payment) {
+          // May arrive before the QR record is persisted; Razorpay retries
+          // non-2xx errors. Polling also acts as a reconciliation fallback.
+          return res.status(503).json({ success: false });
+        }
+        const updated = await applyCapturedQrPayment(req, payment, captured);
+        return res.json({
+          success: true,
+          paid: updated?.paymentStatus === "Paid",
+        });
+      }
 
       if (
         event.event !==
@@ -1238,7 +1447,8 @@ router.post(
       await Order.updateOne(
         {
           _id: order._id,
-          paymentStatus: { $ne: "Paid" },
+          paymentStatus: "Pending",
+          status: { $ne: "Cancelled" },
         },
         {
           $set: {
@@ -1251,6 +1461,10 @@ router.post(
         order._id
       );
 
+      if (updated.status === "Cancelled") {
+        console.error("Late online capture requires refund review", updated.orderNumber);
+        return res.json({ success: true, refundReviewRequired: true });
+      }
       notify(req, updated);
 
       return res.json({
