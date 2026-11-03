@@ -3904,7 +3904,7 @@ export function KioskPage() {
                   </div>
                 )}
 
-                {!paymentComplete && qrEnabled && activeOrder?.method === "Counter UPI" && !upiQr?.imageUrl && (
+                {!paid(activeOrder?.order) && qrEnabled && activeOrder?.method === "Counter UPI" && !upiQr?.imageUrl && (
                   <div className="cafe-hint" role="status" style={{display:"flex",flexDirection:"column",gap:10,alignItems:"center"}}>
                     <QrCode size={24} aria-hidden="true" />
                     <span>Generating your secure UPI QR. If it does not appear, retry.</span>
