@@ -477,7 +477,9 @@ router.get("/config", (_req, res) => {
   res.json({
     success: true,
     onlineEnabled: onlineConfigured(),
+    // Both names are kept for older and newer versions of the kiosk UI.
     upiEnabled: onlineConfigured(),
+    qrEnabled: onlineConfigured(),
     paymentTimeoutSeconds: QR_PAYMENT_TIMEOUT_MS / 1000,
   });
 });
@@ -655,6 +657,126 @@ async function closeUnpaidQr(payment) {
     if (qr.status !== "closed") throw error;
   }
 }
+
+// ============================================
+// RECOVER ORDER: required by KioskPage.jsx
+// Only the customer holding the guest order key can access this endpoint.
+// QR is verified directly with Razorpay; a scan alone does not mean paid.
+// ============================================
+
+// Recover an online order if its payment captured but the webhook or
+// checkout callback did not reach this server. Never trust the client here.
+async function syncOnlinePayment(req, payment) {
+  const order = await Order.findById(payment.orderId);
+  if (!order || !payment.gatewayOrderId) return order;
+
+  const response = await razorpay(
+    `orders/${encodeURIComponent(payment.gatewayOrderId)}/payments`
+  );
+  const captured = (response.items || []).find((item) =>
+    item?.status === "captured" &&
+    item.order_id === payment.gatewayOrderId &&
+    item.currency === "INR" &&
+    item.amount === paise(order.total)
+  );
+
+  if (!captured) return order;
+
+  if (payment.transactionId && payment.transactionId !== captured.id) {
+    throw new Error("Conflicting online payment transaction.");
+  }
+
+  const duplicate = await Payment.findOne({
+    transactionId: captured.id,
+    _id: { $ne: payment._id },
+  });
+  if (duplicate) {
+    throw new Error("Payment transaction is linked to another order.");
+  }
+
+  await Payment.updateOne(
+    {
+      _id: payment._id,
+      status: { $ne: "Refunded" },
+      $or: [
+        { transactionId: captured.id },
+        { transactionId: "" },
+        { transactionId: null },
+        { transactionId: { $exists: false } },
+      ],
+    },
+    { $set: { status: "Completed", transactionId: captured.id } }
+  );
+
+  const updated = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      status: "Pending",
+      paymentStatus: "Pending",
+    },
+    { $set: { paymentStatus: "Paid", pickupTime: "Choose your seat" } },
+    { new: true }
+  );
+
+  if (updated) {
+    notify(req, updated);
+    return updated;
+  }
+
+  const latest = await Order.findById(order._id);
+  if (latest?.status === "Cancelled") {
+    console.error(
+      "LATE ONLINE CAPTURE: cancelled order requires refund review:",
+      latest.orderNumber,
+      captured.id
+    );
+  }
+  return latest;
+}
+
+router.get(
+  "/orders/:id/recover",
+  throttle(180, 5 * 60 * 1000),
+  ownedGuestOrder,
+  async (req, res) => {
+    try {
+      let order = await Order.findById(req.guestOrder._id);
+      if (!order) return fail(res, 404, "Order not found.");
+
+      if (order.paymentStatus === "Pending" && order.status === "Pending") {
+        if (order.paymentMethod === "Counter UPI" && onlineConfigured()) {
+          const payment = await Payment.findOne({
+            orderId: order._id,
+            paymentMethod: "Counter UPI",
+            gatewayQrId: { $exists: true, $nin: [null, ""] },
+          }).sort({ createdAt: -1 });
+          if (payment) order = await syncQrPayment(req, payment);
+        } else if (
+          order.paymentMethod === "Online (Razorpay)" && onlineConfigured()
+        ) {
+          const payment = await Payment.findOne({
+            orderId: order._id,
+            gatewayOrderId: { $exists: true, $nin: [null, ""] },
+          }).sort({ createdAt: -1 });
+          if (payment) order = await syncOnlinePayment(req, payment);
+        }
+      }
+
+      return res.json({
+        success: true,
+        paid: order.paymentStatus === "Paid",
+        order: publicOrder(order),
+      });
+    } catch (error) {
+      console.error("Kiosk order recovery:", error);
+      return fail(
+        res,
+        502,
+        "Payment status could not be verified. Keep this order open and retry."
+      );
+    }
+  }
+);
 
 // ============================================
 // AVAILABLE SEATS
@@ -867,6 +989,10 @@ async function createUpiQr(req, res) {
 
     return res.json({
       success: true,
+      // Current React kiosk reads imageUrl and closeBy.
+      // Keep previous names for backwards compatibility.
+      imageUrl: payment.gatewayQrImageUrl,
+      closeBy: payment.expiresAt,
       qrDataUrl: payment.gatewayQrImageUrl,
       qrId: payment.gatewayQrId,
       amount: payment.amount,
@@ -942,8 +1068,9 @@ router.post("/orders/:id/upi-reference", ownedGuestOrder, (_req, res) =>
 
 // Cancel or time out an UNPAID kiosk order.
 // This route does not refund captured payments.
+// Both URLs are recognized by Express; KioskPage.jsx calls /cancel.
 router.post(
-  "/orders/:id/cancel-payment",
+  ["/orders/:id/cancel", "/orders/:id/cancel-payment"],
   throttle(90, 5 * 60 * 1000),
   ownedGuestOrder,
   async (req, res) => {

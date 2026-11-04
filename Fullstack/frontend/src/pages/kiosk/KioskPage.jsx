@@ -1758,6 +1758,62 @@ const KIOSK_STYLES = String.raw`
   }
 }
 
+/* Explicit payment-cancellation action */
+.cafe-cancel-payment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  padding: 13px 18px;
+  margin-top: 14px;
+  background: white;
+  color: #a43e2c;
+  border: 1.5px solid #e9b5a7;
+  border-radius: 12px;
+  font-weight: 800;
+  transition: background .2s ease;
+}
+.cafe-cancel-payment:hover:not(:disabled) { background: #fff1ed; }
+.cafe-cancel-payment:disabled { opacity: .55; cursor: wait; }
+
+/* Display only the QR scanning area of Razorpay's portrait QR artwork. */
+.cafe-qr-payment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+.cafe-qr-payment > strong { font-size: 18px; color: var(--forest); }
+.cafe-qr-payment > small { color: var(--muted); line-height: 1.5; }
+.cafe-qr-only {
+  width: 230px;
+  height: 230px;
+  max-width: 100%;
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border: 10px solid white;
+  border-radius: 16px;
+  box-shadow: 0 5px 25px #173f3518;
+  background: white;
+}
+.cafe-qr-only img {
+  position: absolute;
+  /* Razorpay returns portrait branded art; zoom into the centered QR square. */
+  width: 150%;
+  height: auto;
+  max-width: none;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.cafe-qr-fallback { font-size: 12px; color: var(--muted); }
+.cafe-qr-fallback summary { cursor: pointer; }
+.cafe-qr-fallback a { display: inline-block; margin-top: 8px; color: var(--forest); }
+
 /* Visible Scan UPI QR option on the main menu */
 .cafe-qr-shortcut {
   display: flex;
@@ -2368,6 +2424,85 @@ export function KioskPage() {
   }, [onlineEnabled]);
 
   // ============================================
+  // CUSTOMER CANCELS AN UNPAID ORDER
+  // The server MUST reject cancellation if payment has completed.
+  // Do not drop an order locally unless the server confirms cancellation.
+  // ============================================
+
+  async function cancelPayment() {
+    const current = activeOrderRef.current;
+    if (!current || paid(current.order) || lock.current) return;
+
+    if (!window.confirm("Cancel this unpaid order and its payment request?")) {
+      return;
+    }
+
+    lock.current = true;
+    setBusy(true);
+    setError("");
+
+    try {
+      // Re-check the provider-backed status before requesting cancellation.
+      const latest = await api(`/kiosk/orders/${current.order._id}/recover`, {
+        headers: { "x-kiosk-order-key": current.key },
+      });
+
+      if (paid(latest.order)) {
+        const updated = { ...current, order: { ...current.order, ...latest.order } };
+        activeOrderRef.current = updated;
+        setActiveOrder(updated);
+        saveKioskOrder(updated);
+        setError("Payment is already successful. Please select your seat; it cannot be cancelled here.");
+        return;
+      }
+
+      if (latest.order?.status === "Cancelled") {
+        reset();
+        return;
+      }
+
+      // Requires an authenticated customer-cancellation route in backend.
+      // Backend must atomically verify the payment is still unpaid, cancel
+      // the gateway QR where supported, then mark the order as Cancelled.
+      const result = await api(`/kiosk/orders/${current.order._id}/cancel`, {
+        method: "POST",
+        headers: { "x-kiosk-order-key": current.key },
+        body: JSON.stringify({ reason: "Customer cancelled before payment" }),
+      });
+
+      let cancelledOrder = result.order;
+      if (cancelledOrder?.status !== "Cancelled") {
+        const checked = await api(`/kiosk/orders/${current.order._id}/recover`, {
+          headers: { "x-kiosk-order-key": current.key },
+        });
+        cancelledOrder = checked.order;
+      }
+
+      if (cancelledOrder?.status !== "Cancelled") {
+        if (paid(cancelledOrder)) {
+          const updated = { ...current, order: { ...current.order, ...cancelledOrder } };
+          activeOrderRef.current = updated;
+          setActiveOrder(updated);
+          saveKioskOrder(updated);
+          throw new Error("Payment has already been received; cancellation is not possible.");
+        }
+        throw new Error("Cancellation was not confirmed. Your order is still available for recovery.");
+      }
+
+      reset();
+    } catch (err) {
+      setError(
+        /Request failed \(404\)/.test(err.message)
+          ? "Cancel-payment API is missing in the backend. Add POST /api/kiosk/orders/:id/cancel with payment verification. The order has NOT been cancelled."
+          : err.message
+      );
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+
+  // ============================================
   // REFRESH ORDER
   // ============================================
 
@@ -2817,7 +2952,7 @@ export function KioskPage() {
   // PLACE ORDER
   // ============================================
 
-  async function placeOrder() {
+  async function placeOrder(selectedMethod = method) {
     if (
       lock.current ||
       !cart.length ||
@@ -2840,7 +2975,7 @@ export function KioskPage() {
           body: JSON.stringify({
             franchiseId,
 
-            paymentMethod: method,
+            paymentMethod: selectedMethod,
 
             items: cart.map((item) => ({
               menuItemId: item.id,
@@ -2855,7 +2990,7 @@ export function KioskPage() {
       const fresh = {
         order: result.order,
         key: result.orderKey,
-        method,
+        method: selectedMethod,
         franchiseId,
         createdAtMs: Date.now(),
       };
@@ -2873,7 +3008,7 @@ export function KioskPage() {
 
       setScreen("status");
 
-      if (method === "Online (Razorpay)") {
+      if (selectedMethod === "Online (Razorpay)") {
         try {
           await payOnline(
             result.order,
@@ -3423,17 +3558,17 @@ export function KioskPage() {
                         ? "Secure UPI QR is not enabled on this server. Other payment options are available."
                         : !quantity
                         ? "Add food to your cart to use QR payment."
-                        : "Continue to checkout, place your order, then scan its unique QR."}
+                        : "Tap Scan UPI QR to create your order and show its unique payment QR."}
                     </small>
                   </span>
                 </div>
                 <button
                   type="button"
-                  disabled={!qrEnabled || !quantity || !franchiseId}
+                  disabled={!qrEnabled || !quantity || !franchiseId || busy}
                   onClick={() => {
                     setCartOpen(false);
                     setMethod("Counter UPI");
-                    setScreen("checkout");
+                    void placeOrder("Counter UPI");
                   }}
                 >
                   <QrCode size={18} />
@@ -3690,9 +3825,15 @@ export function KioskPage() {
                         checked={
                           method === value
                         }
-                        onChange={() =>
-                          setMethod(value)
-                        }
+                        disabled={busy}
+                        onChange={() => {
+                          setMethod(value);
+                          // A provider QR requires an order ID; create an
+                          // unpaid order on selection, then show its QR.
+                          if (value === "Counter UPI" && qrEnabled) {
+                            void placeOrder("Counter UPI");
+                          }
+                        }}
                       />
 
                       <span className="cafe-payment-icon">
@@ -3719,7 +3860,7 @@ export function KioskPage() {
                 <div className="cafe-hint" role="status">
                   <QrCode size={18} />
                   {qrEnabled
-                    ? "Place your order to generate the secure, order-specific Scan UPI QR. Seat selection unlocks after verified payment."
+                    ? "Selecting UPI creates your pending order and shows its QR immediately. Seat selection unlocks after verified payment."
                     : "Dynamic Scan UPI QR is unavailable. Counter UPI requires manual cashier verification; you can also choose online payment if enabled."}
                 </div>
               )}
@@ -3735,13 +3876,25 @@ export function KioskPage() {
                 disabled={
                   busy || !quantity
                 }
-                onClick={placeOrder}
+                onClick={() => void placeOrder()}
               >
                 {busy
                   ? "Processing..."
                   : `Place order · ${fmt(amountToPay)}`}
 
                 <ChevronRight size={19} />
+              </button>
+
+              <button
+                type="button"
+                className="cafe-cancel-payment"
+                disabled={busy}
+                onClick={() => {
+                  setMethod(onlineEnabled ? "Online (Razorpay)" : "Counter Cash");
+                  setScreen("menu");
+                }}
+              >
+                <X size={18} /> Cancel checkout
               </button>
             </section>
 
@@ -3843,7 +3996,7 @@ export function KioskPage() {
                     ? "Your order has been sent to the admin. The menu will open automatically when the order is confirmed."
                     : paid(activeOrder.order)
                     ? "Choose any available seat. You do not need admin seat assignment."
-                    : "Please complete payment within one minute. The menu will reset if payment remains pending."}
+                    : "Complete your payment or cancel the unpaid order below. Your kiosk remains on this screen until the payment status is verified."}
                 </p>
 
                 <div className="cafe-order-meta">
@@ -3919,10 +4072,21 @@ export function KioskPage() {
                 )}
 
                 {!paid(activeOrder.order) && upiQr?.imageUrl && activeOrder?.method === "Counter UPI" && (
-                  <div className="cafe-hint" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-                    <strong>Scan this unique UPI QR to pay securely</strong>
-                    <img src={upiQr.imageUrl} alt="OfficeBite order-specific UPI payment QR" style={{width:220,maxWidth:"100%",aspectRatio:"1",objectFit:"contain"}} />
-                    <small>Payment unlocks your seat only after Razorpay confirms capture. QR expiry may exceed 60 seconds.</small>
+                  <div className="cafe-hint cafe-qr-payment" role="region" aria-label="Scan to pay using UPI">
+                    <strong>Scan &amp; Pay</strong>
+                    <div className="cafe-qr-only">
+                      <img
+                        src={upiQr.imageUrl}
+                        alt="Scan this UPI QR code to pay for your OfficeBite order"
+                      />
+                    </div>
+                    <small>Payment confirm hone ke baad apni seat select karein.</small>
+                    <details className="cafe-qr-fallback">
+                      <summary>QR scan nahi ho raha?</summary>
+                      <a href={upiQr.imageUrl} target="_blank" rel="noopener noreferrer">
+                        Original QR kholein
+                      </a>
+                    </details>
                   </div>
                 )}
 
@@ -3933,6 +4097,8 @@ export function KioskPage() {
                     {activeOrder.method ===
                     "Online (Razorpay)"
                       ? "Complete your secure online payment before the timer ends."
+                      : activeOrder.method === "Counter UPI" && qrEnabled
+                      ? "Scan the UPI QR above. Your seat unlocks only when the server confirms payment."
                       : "Please pay at the counter. Admin will verify the payment."}
                   </div>
                 )}
@@ -3948,6 +4114,20 @@ export function KioskPage() {
                       <RefreshCw size={17} />
 
                       Retry online payment
+                    </button>
+                  )}
+
+                {/* Cancel only when the provider-backed order is still unpaid. */}
+                {!paid(activeOrder.order) &&
+                  activeOrder.order.status !== "Cancelled" && (
+                    <button
+                      type="button"
+                      className="cafe-cancel-payment"
+                      onClick={cancelPayment}
+                      disabled={busy}
+                    >
+                      <X size={18} />
+                      {busy ? "Checking payment..." : "Cancel payment & order"}
                     </button>
                   )}
 
