@@ -6,7 +6,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-const [paymentComplete, setPaymentComplete] = useState(false);
 
 import {
   Armchair,
@@ -3919,7 +3918,7 @@ export function KioskPage() {
                   </div>
                 )}
 
-                {!paymentComplete && upiQr?.imageUrl && activeOrder?.method === "Counter UPI" && (
+                {!paid(activeOrder.order) && upiQr?.imageUrl && activeOrder?.method === "Counter UPI" && (
                   <div className="cafe-hint" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
                     <strong>Scan this unique UPI QR to pay securely</strong>
                     <img src={upiQr.imageUrl} alt="OfficeBite order-specific UPI payment QR" style={{width:220,maxWidth:"100%",aspectRatio:"1",objectFit:"contain"}} />
