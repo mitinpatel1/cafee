@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+const [paymentComplete, setPaymentComplete] = useState(false);
 
 import {
   Armchair,
