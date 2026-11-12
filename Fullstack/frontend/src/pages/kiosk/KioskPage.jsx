@@ -2043,10 +2043,6 @@ const [nonVegOnly, setNonVegOnly] = useState(false);
 
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoPreview, setPromoPreview] = useState(null);
-  const [promoBusy, setPromoBusy] = useState(false);
-  const [promoError, setPromoError] = useState("");
 
   // menu | checkout | status
   // An active guest order always reopens after F5.
@@ -2273,16 +2269,8 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
     0
   );
 
-  // Coupon display is bound to the exact cart contents and franchise.
-  // Real pricing is recalculated by the backend when the order is placed.
-  const cartSignature = JSON.stringify({
-    franchiseId,
-    items: cart.map(item => [item.id, item.quantity]),
-  });
-  const appliedPromo = promoPreview?.signature === cartSignature &&
-    promoPreview?.couponCode === promoCode.trim().toUpperCase()
-    ? promoPreview : null;
-  const amountToPay = appliedPromo?.total ?? total;
+  // No coupon/discount is applied. The payable amount is the cart total.
+  const amountToPay = total;
 
   // Simple complementary-food recommendations (no paid AI API required).
   const recommendations = useMemo(() => {
@@ -2303,24 +2291,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
         Number(Boolean(b.isPopular)) - Number(Boolean(a.isPopular))
       ).slice(0, 3);
   }, [menu, cart]);
-
-  async function applyPromo() {
-    const code = promoCode.trim().toUpperCase();
-    if (!code || !franchiseId || !cart.length) return;
-    setPromoBusy(true); setPromoError(""); setPromoPreview(null);
-    const signature = cartSignature;
-    try {
-      const response = await api("/coupons/preview", {
-        method: "POST",
-        body: JSON.stringify({
-          code, franchiseId,
-          items: cart.map(item => ({ menuItemId: item.id, quantity: item.quantity })),
-        }),
-      });
-      setPromoPreview({ ...response, signature });
-    } catch (err) { setPromoError(err.message); }
-    finally { setPromoBusy(false); }
-  }
 
   const heroImage = menu.find(
     (item) => item.image
@@ -2399,9 +2369,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
     setBusy(false);
     setCart([]);
     setCartOpen(false);
-    setPromoCode("");
-    setPromoPreview(null);
-    setPromoError("");
 
     setCategory("All");
     setSearch("");
@@ -2987,7 +2954,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
               quantity: item.quantity,
               instructions: item.instructions || "",
             })),
-            couponCode: appliedPromo?.couponCode || "",
           }),
         }
       );
@@ -3800,21 +3766,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                 customer seat selection.
               </p>
 
-              <div style={{ padding: 16, border: "1px solid #e5ebe4", borderRadius: 14, background: "#f7fbf7", margin: "18px 0" }}>
-                <label htmlFor="officebite-coupon" style={{ fontWeight: 800 }}>Have a coupon?</label>
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <input id="officebite-coupon" placeholder="e.g. SAVE10" maxLength={24}
-                    value={promoCode} onChange={e => { setPromoCode(e.target.value.toUpperCase()); setPromoPreview(null); setPromoError(""); }}
-                    style={{ minWidth: 0, flex: 1, padding: 12, borderRadius: 10, border: "1px solid #cfe1d2" }} />
-                  <button type="button" onClick={applyPromo} disabled={!promoCode.trim() || promoBusy || busy}
-                    style={{ padding: "10px 16px", background: "#173f35", color: "white", border: 0, borderRadius: 10 }}>
-                    {promoBusy ? "Checking..." : "Apply"}
-                  </button>
-                </div>
-                {promoError && <small role="alert" style={{ display: "block", color: "#aa3525", marginTop: 8 }}>{promoError}</small>}
-                {appliedPromo && <small role="status" style={{ display: "block", color: "#168154", marginTop: 8 }}>Coupon applied! You save {fmt(appliedPromo.discount)}.</small>}
-              </div>
-
               <div className="cafe-payment-list">
                 {paymentMethods.map(
                   ({
@@ -3944,10 +3895,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                 <b>₹0.00</b>
               </div>
 
-              {appliedPromo && <div className="cafe-summary-row" style={{ color: "#178251" }}>
-                <span>Coupon {appliedPromo.couponCode}</span>
-                <b>-{fmt(appliedPromo.discount)}</b>
-              </div>}
               <div className="cafe-summary-total">
                 <span>Total to pay</span>
                 <strong>
