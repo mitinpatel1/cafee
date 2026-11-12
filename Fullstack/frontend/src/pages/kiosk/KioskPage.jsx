@@ -483,11 +483,19 @@ const KIOSK_STYLES = String.raw`
   border-radius: 13px;
   color: #6b8979;
 }
-
-.cafe-location:focus-within,
+  .cafe-location:focus-within,
 .cafe-search:focus-within,
 .cafe-price-sort:focus-within {
-  border-color: var(--orange);
+  border-color: var(--line);
+  outline: none;
+  box-shadow: none;
+}
+
+.cafe-location select:focus,
+.cafe-search input:focus,
+.cafe-price-sort select:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 .cafe-location select,
@@ -2029,8 +2037,7 @@ export function KioskPage() {
   // Default menu ordering: cheapest items first.
   const [priceSort, setPriceSort] = useState("low-high");
   const [vegOnly, setVegOnly] = useState(false);
-  const [jainOnly, setJainOnly] = useState(false);
-  const [maxPrice, setMaxPrice] = useState("");
+const [nonVegOnly, setNonVegOnly] = useState(false);
   const [qrEnabled, setQrEnabled] = useState(false);
   const [upiQr, setUpiQr] = useState(null);
 
@@ -2230,11 +2237,9 @@ export function KioskPage() {
           .toLowerCase()
           .includes(term);
       const matchesVeg = !vegOnly || item.isVeg === true;
-      const matchesJain = !jainOnly || item.isJain === true;
-      const cap = Number(maxPrice);
-      const matchesPrice = maxPrice === "" || (Number.isFinite(cap) && cap >= 0 && Number(item.price) <= cap);
-      return matchCategory && matchSearch && matchesVeg && matchesJain && matchesPrice;
-    });
+const matchesNonVeg = !nonVegOnly || item.isVeg === false;
+
+return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
 
     return matchingItems.sort((a, b) => {
       const nameA = String(a.name || "");
@@ -2254,7 +2259,7 @@ export function KioskPage() {
       // Initial value and fallback: Price low to high.
       return priceA - priceB || nameA.localeCompare(nameB);
     });
-  }, [menu, category, search, priceSort, vegOnly, jainOnly, maxPrice]);
+  }, [menu, category, search, priceSort, vegOnly, nonVegOnly]);
 
   const quantity = cart.reduce(
     (sum, item) =>
@@ -3534,47 +3539,54 @@ export function KioskPage() {
 
               {/* CATEGORIES */}
 
-              <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"15px 0 6px"}}>
-                <label style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13}}>
-                  <input type="checkbox" checked={vegOnly} onChange={(e)=>setVegOnly(e.target.checked)} /> Veg only
-                </label>
-                <label style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13}}>
-                  <input type="checkbox" checked={jainOnly} onChange={(e)=>setJainOnly(e.target.checked)} /> Jain only
-                </label>
-                <label style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13}}>
-                  Maximum price ₹
-                  <input type="number" min="0" step="1" value={maxPrice} onChange={(e)=>setMaxPrice(e.target.value)} placeholder="Any" style={{width:92,padding:"8px",border:"1px solid #e5ebe4",borderRadius:9}} />
-                </label>
-                <button type="button" onClick={()=>{setVegOnly(false);setJainOnly(false);setMaxPrice("");}} style={{padding:"8px 12px",border:"1px solid #e5ebe4",borderRadius:9,background:"white",color:"#173f35"}}>Clear filters</button>
-              </div>
-              {/* QR payment shortcut: never collect money without a specific order. */}
-              <div className="cafe-qr-shortcut">
-                <div className="cafe-qr-shortcut-description">
-                  <QrCode size={25} aria-hidden="true" />
-                  <span>
-                    <strong>Scan &amp; Pay with UPI</strong>
-                    <small>
-                      {!qrEnabled
-                        ? "Secure UPI QR is not enabled on this server. Other payment options are available."
-                        : !quantity
-                        ? "Add food to your cart to use QR payment."
-                        : "Tap Scan UPI QR to create your order and show its unique payment QR."}
-                    </small>
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={!qrEnabled || !quantity || !franchiseId || busy}
-                  onClick={() => {
-                    setCartOpen(false);
-                    setMethod("Counter UPI");
-                    void placeOrder("Counter UPI");
-                  }}
-                >
-                  <QrCode size={18} />
-                  Scan UPI QR
-                </button>
-              </div>
+              
+{/* VEG / NON-VEG FILTERS */}
+<div
+  style={{
+    display: "flex",
+    gap: 20,
+    flexWrap: "wrap",
+    alignItems: "center",
+    margin: "15px 0 6px",
+  }}
+>
+  <label style={{
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    fontSize: 14,
+    cursor: "pointer",
+  }}>
+    <input
+      type="checkbox"
+      checked={vegOnly}
+      onChange={(e) => {
+        setVegOnly(e.target.checked);
+        setNonVegOnly(false);
+      }}
+    />
+    Veg
+  </label>
+
+  <label style={{
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    fontSize: 14,
+    cursor: "pointer",
+  }}>
+    <input
+      type="checkbox"
+      checked={nonVegOnly}
+      onChange={(e) => {
+        setNonVegOnly(e.target.checked);
+        setVegOnly(false);
+      }}
+    />
+    Non-Veg
+  </label>
+</div>
+
 
               <div className="cafe-categories">
                 {categories.map((cat) => (

@@ -21,6 +21,11 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'User no longer exists.' });
     }
 
+    // A password reset increments tokenVersion and immediately invalidates old sessions.
+    if ((decoded.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+      return res.status(401).json({ success: false, message: 'Your password was changed. Please log in again.' });
+    }
+
     req.user = user;
     next();
   } catch (error) {

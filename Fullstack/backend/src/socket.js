@@ -9,8 +9,8 @@ function setupSocket(io) {
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error('Authentication required'));
       const payload = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(payload.id).select('role');
-      if (!user) return next(new Error('Unauthorized'));
+      const user = await User.findById(payload.id).select('role tokenVersion');
+      if (!user || (payload.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) return next(new Error('Unauthorized'));
       socket.user = user;
       next();
     } catch { next(new Error('Unauthorized')); }
@@ -29,7 +29,7 @@ function setupSocket(io) {
       try {
         const order = await Order.findById(orderId);
         if (!order) return;
-        const owner = order.userId.toString() === socket.user._id.toString();
+        const owner = Boolean(order.userId) && String(order.userId) === String(socket.user._id);
         const admin = socket.user.role === 'admin';
         const ownsFranchise = socket.user.role === 'franchise' && order.franchiseId &&
           await Franchise.exists({ _id: order.franchiseId, ownerId: socket.user._id });

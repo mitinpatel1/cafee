@@ -1,15 +1,16 @@
 
 const API_BASE = "/api";
 
-// Separate token for each portal
+// =====================================================
+// AUTHENTICATION HELPERS
+// =====================================================
+
 const getToken = () => {
   const path = window.location.pathname;
-
   const storageKey =
     path === "/admin" || path.startsWith("/admin/")
       ? "officebite_token_admin"
-      : path === "/franchise" ||
-          path.startsWith("/franchise/")
+      : path === "/franchise" || path.startsWith("/franchise/")
         ? "officebite_token_franchise"
         : "officebite_token_user";
 
@@ -18,23 +19,16 @@ const getToken = () => {
 
 const getAuthHeaders = (explicitToken) => {
   const token = explicitToken ?? getToken();
-
   return {
     "Content-Type": "application/json",
-    ...(token
-      ? { Authorization: `Bearer ${token}` }
-      : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 };
 
 const getUploadHeaders = () => {
   const token = getToken();
-
-  return token
-    ? { Authorization: `Bearer ${token}` }
-    : {};
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
-
 
 // =====================================================
 // RESPONSE HANDLER
@@ -66,11 +60,13 @@ const handleResponse = async (response) => {
   }
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       data?.message ||
         data?.error ||
         `Request failed (${response.status}).`
     );
+    error.status = response.status;
+    throw error;
   }
 
   return data;
@@ -121,6 +117,33 @@ export const api = {
     return handleResponse(res);
   },
 
+  requestPasswordReset: async ({ email, portal }) => {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, portal }),
+    });
+    return handleResponse(res);
+  },
+
+  verifyPasswordResetOtp: async ({ email, portal, otp }) => {
+    const res = await fetch(`${API_BASE}/auth/verify-reset-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, portal, otp }),
+    });
+    return handleResponse(res);
+  },
+
+  resetPassword: async ({ email, portal, resetToken, newPassword }) => {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, portal, resetToken, newPassword }),
+    });
+    return handleResponse(res);
+  },
+
   register: async (userData) => {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
@@ -133,14 +156,14 @@ export const api = {
     return handleResponse(res);
   },
 
- getProfile: async (token) => {
-  const res = await fetch(`${API_BASE}/auth/profile`, {
-    method: "GET",
-    headers: getAuthHeaders(token),
-  });
+  getProfile: async (token) => {
+    const res = await fetch(`${API_BASE}/auth/profile`, {
+      method: "GET",
+      headers: getAuthHeaders(token),
+    });
 
-  return handleResponse(res);
-},
+    return handleResponse(res);
+  },
 
   updateProfile: async (userData) => {
     const res = await fetch(`${API_BASE}/auth/profile`, {
@@ -368,11 +391,7 @@ export const api = {
 
  
 collectCounterPayment: async (id, reference = "") => {
-  // OLD
-// const token = localStorage.getItem("officebite_token");
-
-// NEW
-const token = getToken();
+  const token = getToken();
 
   const response = await fetch(
     `${API_BASE}/orders/admin/${id}/counter-payment`,
@@ -393,17 +412,14 @@ const token = getToken();
   const data = await response.json();
 
   if (!response.ok) {
-  const error = new Error(
-    data?.message ||
-    data?.error ||
-    `Request failed (${response.status}).`
-  );
+    console.error("Counter payment failed:", data);
 
-  error.status = response.status;
-  throw error;
-}
+    throw new Error(
+      data.message || "Unable to confirm counter payment."
+    );
+  }
 
-return data;
+  return data;
 },
 
 
