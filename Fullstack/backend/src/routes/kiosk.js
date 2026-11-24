@@ -9,12 +9,6 @@ const Payment = require("../models/Payment");
 const Franchise = require("../models/Franchise");
 const MenuItem = require("../models/MenuItem");
 
-
-const QR_PAYMENT_TIMEOUT_MS = 2 * 60 * 1000;
-// Minimum QR expiry is 120 seconds after QR creation.
-// The kiosk deadline still starts when the order is created.
-
-
 const {
   listSeats,
   assignSeatByCustomer,
@@ -22,26 +16,36 @@ const {
 
 const router = express.Router();
 
+const QR_PAYMENT_TIMEOUT_MS = 2 * 60 * 1000;
+
 router.use((_req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
 });
 
 // ============================================
-// HELPERS
+// CASHFREE CONFIGURATION
 // ============================================
 
-const onlineConfigured = () =>
+const cashfreeConfigured = () =>
   Boolean(
-    process.env.RAZORPAY_KEY_ID &&
-    process.env.RAZORPAY_KEY_SECRET
+    process.env.CASHFREE_APP_ID &&
+    process.env.CASHFREE_SECRET_KEY
   );
 
+const cashfreeEnvironment = () =>
+  String(process.env.CASHFREE_ENV || "SANDBOX").toUpperCase();
+
+const cashfreeBaseUrl = () =>
+  cashfreeEnvironment() === "PRODUCTION"
+    ? "https://api.cashfree.com/pg"
+    : "https://sandbox.cashfree.com/pg";
+
+const cashfreeApiVersion =
+  process.env.CASHFREE_API_VERSION || "2025-01-01";
+
 const hash = (value) =>
-  crypto
-    .createHash("sha256")
-    .update(value)
-    .digest("hex");
+  crypto.createHash("sha256").update(value).digest("hex");
 
 const money = (value) =>
   Math.round(Number(value) * 100) / 100;
@@ -56,14 +60,17 @@ function fail(res, code, message) {
   });
 }
 
-function matchingSignature(expected, received) {
+function safeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") {
+    return false;
+  }
+
+  const first = Buffer.from(a);
+  const second = Buffer.from(b);
+
   return (
-    typeof received === "string" &&
-    /^[0-9a-f]{64}$/i.test(received) &&
-    crypto.timingSafeEqual(
-      Buffer.from(expected, "hex"),
-      Buffer.from(received, "hex")
-    )
+    first.length === second.length &&
+    crypto.timingSafeEqual(first, second)
   );
 }
 
@@ -84,13 +91,384 @@ function publicOrder(order) {
     seatPending:
       order.paymentStatus === "Paid" &&
       !order.seatNumber &&
-      !["Cancelled", "Picked Up"].includes(
-        order.status
-      ),
+      !["Cancelled", "Picked Up"].includes(order.status),
 
     pickupTime: order.pickupTime,
     estimatedReadyTime: order.estimatedReadyTime,
   };
+}
+
+function getCustomerPhone(req, order) {
+  const candidates = [
+    req.body?.customerPhone,
+    req.body?.phone,
+    order?.guestPhone,
+    order?.customerPhone,
+    order?.phone,
+    process.env.CASHFREE_DEFAULT_CUSTOMER_PHONE,
+  ];
+
+  for (const candidate of candidates) {
+    const phone = String(candidate || "").replace(/\D/g, "");
+
+    if (/^[0-9]{10,15}$/.test(phone)) {
+      return phone;
+    }
+  }
+
+  return null;
+}
+
+function cashfreeHeaders(idempotencyKey) {
+  const headers = {
+    "Content-Type": "application/json",
+    "x-client-id": process.env.CASHFREE_APP_ID,
+    "x-client-secret": process.env.CASHFREE_SECRET_KEY,
+    "x-api-version": cashfreeApiVersion,
+  };
+
+  if (idempotencyKey) {
+    headers["x-idempotency-key"] = idempotencyKey;
+  }
+
+  return headers;
+}
+
+async function cashfreeRequest(
+  path,
+  method = "GET",
+  body,
+  idempotencyKey
+) {
+  if (!cashfreeConfigured()) {
+    throw new Error("Cashfree is not configured.");
+  }
+
+  const response = await fetch(
+    `${cashfreeBaseUrl()}${path}`,
+    {
+      method,
+      headers: cashfreeHeaders(idempotencyKey),
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(20000),
+    }
+  );
+
+  const raw = await response.text();
+
+  let data = {};
+
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error("Invalid response received from Cashfree.");
+  }
+
+  if (!response.ok) {
+    console.error("Cashfree API error:", response.status, data);
+
+    throw new Error(
+      data.message ||
+      data.error_description ||
+      data.type ||
+      "Cashfree payment request failed."
+    );
+  }
+
+  return data;
+}
+
+function createCashfreeOrderId(order) {
+  // Cashfree order_id should be unique and contain safe characters.
+  return `OB_${String(order._id)}_${crypto.randomBytes(5).toString("hex")}`;
+}
+
+function cashfreeReturnUrl() {
+  return process.env.CASHFREE_RETURN_URL || undefined;
+}
+
+function cashfreeNotifyUrl() {
+  return process.env.CASHFREE_NOTIFY_URL || undefined;
+}
+
+function cashfreeWebhookSignature(rawBody, timestamp, received) {
+  if (
+    !Buffer.isBuffer(rawBody) ||
+    !timestamp ||
+    !received ||
+    !process.env.CASHFREE_SECRET_KEY
+  ) {
+    return false;
+  }
+
+  const expected = crypto
+    .createHmac("sha256", process.env.CASHFREE_SECRET_KEY)
+    .update(String(timestamp) + rawBody.toString("utf8"))
+    .digest("base64");
+
+  return safeEqual(expected, received);
+}
+
+// ============================================
+// CASHFREE ORDER CREATION
+// ============================================
+
+async function createCashfreePayment(req, order, paymentMethod) {
+  if (!cashfreeConfigured()) {
+    throw new Error("Cashfree is not configured.");
+  }
+
+  const customerPhone = getCustomerPhone(req, order);
+
+  if (!customerPhone) {
+    throw new Error(
+      "Customer phone number is required for Cashfree. Add a phone number or configure CASHFREE_DEFAULT_CUSTOMER_PHONE."
+    );
+  }
+
+  let payment = await Payment.findOne({
+    orderId: order._id,
+    paymentMethod,
+    status: { $in: ["Initiated", "Processing"] },
+    paymentSessionId: { $exists: true, $nin: [null, ""] },
+  }).sort({ createdAt: -1 });
+
+  if (payment) {
+    return payment;
+  }
+
+  const gatewayOrderId = createCashfreeOrderId(order);
+
+  payment = await Payment.create({
+    orderId: order._id,
+    userId: null,
+    amount: order.total,
+    paymentMethod,
+    status: "Initiated",
+    gatewayName: "Cashfree",
+    gatewayOrderId,
+    paymentId: `KIOSK-${crypto.randomBytes(12).toString("hex")}`,
+  });
+
+  const orderMeta = {};
+
+  const returnUrl = cashfreeReturnUrl();
+  const notifyUrl = cashfreeNotifyUrl();
+
+  if (returnUrl) orderMeta.return_url = returnUrl;
+  if (notifyUrl) orderMeta.notify_url = notifyUrl;
+
+  try {
+    const payload = {
+      order_id: gatewayOrderId,
+      order_amount: money(order.total),
+      order_currency: "INR",
+
+      customer_details: {
+        customer_id: `OB_${String(order._id).slice(-20)}`,
+        customer_phone: customerPhone,
+      },
+
+      order_note: `OfficeBite order ${order.orderNumber}`.slice(0, 250),
+
+      order_tags: {
+        officebite_order_id: String(order._id),
+        order_number: String(order.orderNumber || ""),
+      },
+
+      ...(Object.keys(orderMeta).length
+        ? { order_meta: orderMeta }
+        : {}),
+    };
+
+    const result = await cashfreeRequest(
+      "/orders",
+      "POST",
+      payload,
+      crypto
+        .createHash("sha256")
+        .update(gatewayOrderId)
+        .digest("hex")
+    );
+
+    if (!result.payment_session_id) {
+      throw new Error("Cashfree did not return a payment session.");
+    }
+
+    payment.paymentSessionId = result.payment_session_id;
+    payment.gatewayResponse = result;
+    payment.gatewayName = "Cashfree";
+    payment.status = "Initiated";
+
+    await payment.save();
+
+    return payment;
+  } catch (error) {
+    await Payment.updateOne(
+      { _id: payment._id },
+      {
+        $set: {
+          status: "Failed",
+          gatewayName: "Cashfree",
+        },
+      }
+    );
+
+    throw error;
+  }
+}
+
+// ============================================
+// CASHFREE PAYMENT VERIFICATION
+// ============================================
+
+async function getCashfreePayments(gatewayOrderId) {
+  return cashfreeRequest(
+    `/orders/${encodeURIComponent(gatewayOrderId)}/payments`,
+    "GET"
+  );
+}
+
+function findSuccessfulPayment(payments, expectedAmount) {
+  const list = Array.isArray(payments) ? payments : [];
+
+  return list.find((item) =>
+    item &&
+    item.payment_status === "SUCCESS" &&
+    item.payment_amount !== undefined &&
+    Math.round(Number(item.payment_amount) * 100) ===
+      Math.round(Number(expectedAmount) * 100) &&
+    item.cf_payment_id
+  );
+}
+
+async function markCashfreeOrderPaid(req, payment, captured) {
+  if (!payment || !captured) return null;
+
+  const order = await Order.findById(payment.orderId);
+  if (!order) return null;
+
+  if (
+    payment.gatewayName !== "Cashfree" ||
+    !payment.gatewayOrderId ||
+    !captured.cf_payment_id ||
+    captured.payment_status !== "SUCCESS" ||
+    Math.round(Number(captured.payment_amount) * 100) !==
+      paise(order.total) ||
+    paise(payment.amount) !== paise(order.total) ||
+    captured.payment_currency &&
+      captured.payment_currency !== "INR"
+  ) {
+    return order;
+  }
+
+  const transactionId = String(captured.cf_payment_id);
+
+  if (
+    payment.transactionId &&
+    String(payment.transactionId) !== transactionId
+  ) {
+    throw new Error("Conflicting Cashfree payment transaction.");
+  }
+
+  const duplicate = await Payment.findOne({
+    transactionId,
+    _id: { $ne: payment._id },
+  });
+
+  if (duplicate) {
+    throw new Error(
+      "Cashfree transaction is already linked to another payment."
+    );
+  }
+
+  await Payment.updateOne(
+    {
+      _id: payment._id,
+      status: { $ne: "Refunded" },
+      $or: [
+        { transactionId },
+        { transactionId: "" },
+        { transactionId: null },
+        { transactionId: { $exists: false } },
+      ],
+    },
+    {
+      $set: {
+        status: "Completed",
+        transactionId,
+        gatewayPaymentId: transactionId,
+        gatewayPaymentStatus: "SUCCESS",
+        gatewayName: "Cashfree",
+        paidAt: new Date(),
+      },
+    }
+  );
+
+  const updated = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      status: "Pending",
+      paymentStatus: "Pending",
+    },
+    {
+      $set: {
+        paymentStatus: "Paid",
+        counterPaymentReference: transactionId,
+        pickupTime: "Choose your seat",
+      },
+    },
+    { new: true }
+  );
+
+  if (updated) {
+    notify(req, updated);
+    return updated;
+  }
+
+  const latest = await Order.findById(order._id);
+
+  if (latest?.status === "Cancelled") {
+    console.error(
+      "LATE CASHFREE PAYMENT: cancelled order requires refund review:",
+      latest.orderNumber,
+      transactionId
+    );
+  }
+
+  return latest;
+}
+
+async function syncCashfreePayment(req, payment) {
+  if (
+    !payment?.gatewayOrderId ||
+    payment.status === "Failed" ||
+    !payment.paymentSessionId
+  ) {
+    return payment
+      ? Order.findById(payment.orderId)
+      : null;
+  }
+
+  try {
+    const response = await getCashfreePayments(
+      payment.gatewayOrderId
+    );
+
+    const captured = findSuccessfulPayment(
+      response,
+      payment.amount
+    );
+
+    if (!captured) {
+      return Order.findById(payment.orderId);
+    }
+
+    return markCashfreeOrderPaid(req, payment, captured);
+  } catch (error) {
+    console.warn("Cashfree sync check warning:", error.message);
+    return Order.findById(payment.orderId);
+  }
 }
 
 // ============================================
@@ -147,62 +525,17 @@ function notify(req, order) {
     order,
   };
 
-  io.to("kitchen").emit(
-    "order_status_updated",
-    payload
-  );
+  io.to("kitchen").emit("order_status_updated", payload);
 
   io.to(`order_${order._id}`).emit(
     "order_tracking_update",
     payload
   );
 
-  io.to(
-    `franchise_${order.franchiseId}`
-  ).emit("franchise_order_updated", order);
-}
-
-// ============================================
-// RAZORPAY API HELPER
-// ============================================
-
-async function razorpay(
-  path,
-  method = "GET",
-  body
-) {
-  const auth = Buffer.from(
-    `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`
-  ).toString("base64");
-
-  const response = await fetch(
-    `https://api.razorpay.com/v1/${path}`,
-    {
-      method,
-
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/json",
-      },
-
-      ...(body
-        ? { body: JSON.stringify(body) }
-        : {}),
-
-      signal: AbortSignal.timeout(15000),
-    }
+  io.to(`franchise_${order.franchiseId}`).emit(
+    "franchise_order_updated",
+    order
   );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(
-      data.error?.description ||
-        "Razorpay request failed."
-    );
-  }
-
-  return data;
 }
 
 // ============================================
@@ -211,20 +544,13 @@ async function razorpay(
 
 async function ownedGuestOrder(req, res, next) {
   try {
-    const token =
-      req.get("x-kiosk-order-key") || "";
+    const token = req.get("x-kiosk-order-key") || "";
 
     if (!/^[a-f0-9]{64}$/i.test(token)) {
-      return fail(
-        res,
-        403,
-        "Invalid order key."
-      );
+      return fail(res, 403, "Invalid order key.");
     }
 
-    const order = await Order.findById(
-      req.params.id
-    )
+    const order = await Order.findById(req.params.id)
       .select("+guestTokenHash")
       .catch(() => null);
 
@@ -232,16 +558,9 @@ async function ownedGuestOrder(req, res, next) {
       !order ||
       !order.isGuestOrder ||
       !order.guestTokenHash ||
-      !matchingSignature(
-        order.guestTokenHash,
-        hash(token)
-      )
+      !safeEqual(order.guestTokenHash, hash(token))
     ) {
-      return fail(
-        res,
-        404,
-        "Order not found."
-      );
+      return fail(res, 404, "Order not found.");
     }
 
     req.guestOrder = order;
@@ -268,41 +587,25 @@ router.post(
       } = req.body || {};
 
       const methods = [
-        "Online (Razorpay)",
+        "Online (Cashfree)",
         "Counter Cash",
         "Counter UPI",
       ];
 
       if (!methods.includes(paymentMethod)) {
-        return fail(
-          res,
-          400,
-          "Choose a valid payment method."
-        );
+        return fail(res, 400, "Choose a valid payment method.");
       }
 
       if (
-        paymentMethod === "Online (Razorpay)" &&
-        !onlineConfigured()
+        ["Online (Cashfree)", "Counter UPI"].includes(paymentMethod) &&
+        !cashfreeConfigured()
       ) {
         return fail(
           res,
           503,
-          "Online payment is not configured."
+          "Cashfree online payment is not configured."
         );
       }
-
-      if (
-        paymentMethod === "Counter UPI" &&
-        !onlineConfigured()
-      ) {
-        return fail(
-          res,
-          503,
-          "Automatic UPI QR payment requires Razorpay configuration."
-        );
-      }
-
 
       const franchise = await Franchise.findOne({
         _id: franchiseId,
@@ -310,11 +613,7 @@ router.post(
       }).catch(() => null);
 
       if (!franchise) {
-        return fail(
-          res,
-          400,
-          "Select an active franchise."
-        );
+        return fail(res, 400, "Select an active franchise.");
       }
 
       if (
@@ -322,11 +621,7 @@ router.post(
         items.length < 1 ||
         items.length > 30
       ) {
-        return fail(
-          res,
-          400,
-          "Cart must contain 1–30 items."
-        );
+        return fail(res, 400, "Cart must contain 1–30 items.");
       }
 
       let subtotal = 0;
@@ -339,11 +634,7 @@ router.post(
           item.quantity < 1 ||
           item.quantity > 50
         ) {
-          return fail(
-            res,
-            400,
-            "Invalid item quantity."
-          );
+          return fail(res, 400, "Invalid item quantity.");
         }
 
         const menuItem = await MenuItem.findById(
@@ -353,8 +644,7 @@ router.post(
         if (
           !menuItem ||
           !menuItem.isAvailable ||
-          String(menuItem.franchiseId) !==
-            String(franchise._id)
+          String(menuItem.franchiseId) !== String(franchise._id)
         ) {
           return fail(
             res,
@@ -363,8 +653,7 @@ router.post(
           );
         }
 
-        subtotal +=
-          menuItem.price * item.quantity;
+        subtotal += menuItem.price * item.quantity;
 
         orderItems.push({
           menuItemId: menuItem._id,
@@ -379,20 +668,11 @@ router.post(
 
       subtotal = money(subtotal);
 
-      if (
-        !Number.isSafeInteger(paise(subtotal)) ||
-        subtotal <= 0
-      ) {
-        return fail(
-          res,
-          400,
-          "Invalid order total."
-        );
+      if (!Number.isSafeInteger(paise(subtotal)) || subtotal <= 0) {
+        return fail(res, 400, "Invalid order total.");
       }
 
-      const orderKey = crypto
-        .randomBytes(32)
-        .toString("hex");
+      const orderKey = crypto.randomBytes(32).toString("hex");
 
       const order = await Order.create({
         userId: null,
@@ -416,9 +696,7 @@ router.post(
         paymentStatus: "Pending",
         status: "Pending",
 
-        notes: String(
-          notes || ""
-        ).slice(0, 500),
+        notes: String(notes || "").slice(0, 500),
 
         pickupCounter: "Main counter",
         pickupTime: "Awaiting payment",
@@ -429,14 +707,9 @@ router.post(
       const io = req.app.get("io");
 
       if (io) {
-        io.to("kitchen").emit(
-          "new_order",
-          order
-        );
+        io.to("kitchen").emit("new_order", order);
 
-        io.to(
-          `franchise_${order.franchiseId}`
-        ).emit(
+        io.to(`franchise_${order.franchiseId}`).emit(
           "franchise_order_updated",
           order
         );
@@ -444,46 +717,39 @@ router.post(
 
       return res.status(201).json({
         success: true,
-
         order: {
           _id: order._id,
           ...publicOrder(order),
           total: order.total,
         },
-
         orderKey,
       });
     } catch (error) {
-      console.error(
-        "Kiosk order creation:",
-        error
-      );
+      console.error("Kiosk order creation:", error);
 
-      return fail(
-        res,
-        500,
-        "Unable to place order."
-      );
+      return fail(res, 500, "Unable to place order.");
     }
   }
 );
 
 // ============================================
-// CONFIGURATION
+// KIOSK CONFIGURATION
 // ============================================
-
 
 router.get("/config", (_req, res) => {
   res.json({
     success: true,
-    onlineEnabled: onlineConfigured(),
-    // Both names are kept for older and newer versions of the kiosk UI.
-    upiEnabled: onlineConfigured(),
-    qrEnabled: onlineConfigured(),
+    onlineEnabled: cashfreeConfigured(),
+    upiEnabled: cashfreeConfigured(),
+    qrEnabled: cashfreeConfigured(),
     paymentTimeoutSeconds: QR_PAYMENT_TIMEOUT_MS / 1000,
+    gateway: "Cashfree",
+    cashfreeMode:
+      cashfreeEnvironment() === "PRODUCTION"
+        ? "production"
+        : "sandbox",
   });
 });
-
 
 // ============================================
 // ORDER TRACKING
@@ -494,18 +760,12 @@ router.get(
   throttle(90, 5 * 60 * 1000),
   async (req, res) => {
     try {
-      const code = String(
-        req.params.code || ""
-      )
+      const code = String(req.params.code || "")
         .trim()
         .toUpperCase();
 
       if (!/^[0-9A-F]{16}$/.test(code)) {
-        return fail(
-          res,
-          400,
-          "Invalid tracking code."
-        );
+        return fail(res, 400, "Invalid tracking code.");
       }
 
       const order = await Order.findOne({
@@ -514,11 +774,7 @@ router.get(
       });
 
       if (!order) {
-        return fail(
-          res,
-          404,
-          "Tracking code not found."
-        );
+        return fail(res, 404, "Tracking code not found.");
       }
 
       return res.json({
@@ -526,212 +782,43 @@ router.get(
         order: publicOrder(order),
       });
     } catch (error) {
-      console.error(
-        "Track kiosk order:",
-        error
-      );
+      console.error("Track kiosk order:", error);
 
-      return fail(
-        res,
-        500,
-        "Could not track order."
-      );
+      return fail(res, 500, "Could not track order.");
     }
   }
 );
 
 // ============================================
-// CAPTURED QR PAYMENT RECONCILIATION
+// RECOVER PAYMENT STATUS
 // ============================================
 
-async function applyCapturedQrPayment(req, payment, captured) {
-  if (!payment || !captured) return null;
-
-  const order = await Order.findById(payment.orderId);
-  if (!order) return null;
-
+async function recoverPayment(req, order) {
   if (
-    order.paymentMethod !== "Counter UPI" ||
-    payment.paymentMethod !== "Counter UPI" ||
-    !captured.id ||
-    captured.status !== "captured" ||
-    captured.currency !== "INR" ||
-    captured.amount !== paise(order.total) ||
-    paise(payment.amount) !== paise(order.total) ||
-    (captured.method && captured.method !== "upi")
+    !order ||
+    order.paymentStatus !== "Pending" ||
+    order.status !== "Pending"
   ) {
     return order;
   }
 
-  const alreadyUsed = await Payment.findOne({
-    transactionId: captured.id,
-    _id: { $ne: payment._id },
-  });
-  if (alreadyUsed) {
-    throw new Error("Gateway transaction was already assigned to another order.");
+  if (
+    !["Online (Cashfree)", "Counter UPI"].includes(
+      order.paymentMethod
+    )
+  ) {
+    return order;
   }
 
-  if (payment.transactionId && payment.transactionId !== captured.id) {
-    throw new Error("Conflicting QR payment transaction.");
-  }
+  const payment = await Payment.findOne({
+    orderId: order._id,
+    gatewayName: "Cashfree",
+    gatewayOrderId: { $exists: true, $nin: [null, ""] },
+  }).sort({ createdAt: -1 });
 
-  // Idempotent: polling and webhook may arrive at the same time.
-  await Payment.updateOne(
-    {
-      _id: payment._id,
-      transactionId: { $in: ["", captured.id] },
-      status: { $ne: "Refunded" },
-    },
-    {
-      $set: {
-        status: "Completed",
-        transactionId: captured.id,
-      },
-    }
-  );
+  if (!payment) return order;
 
-  const updated = await Order.findOneAndUpdate(
-    {
-      _id: order._id,
-      status: "Pending",
-      paymentStatus: "Pending",
-    },
-    {
-      $set: {
-        paymentStatus: "Paid",
-        counterPaymentReference: captured.id,
-        pickupTime: "Choose your seat",
-      },
-    },
-    { new: true }
-  );
-
-  if (updated) {
-    notify(req, updated);
-    return updated;
-  }
-
-  const latest = await Order.findById(order._id);
-  if (latest?.status === "Cancelled") {
-    console.error(
-      "LATE CAPTURE: cancelled QR order requires refund reconciliation:",
-      order.orderNumber,
-      captured.id
-    );
-  }
-  return latest;
-}
-
-async function syncQrPayment(req, payment) {
-  if (!payment?.gatewayQrId) {
-    return Order.findById(payment.orderId);
-  }
-
-  const response = await razorpay(
-    `payments/qr_codes/${encodeURIComponent(payment.gatewayQrId)}/payments?count=100`
-  );
-  const captured = (response.items || []).find(
-    (item) =>
-      item.status === "captured" &&
-      item.currency === "INR" &&
-      item.amount === paise(payment.amount)
-  );
-
-  if (!captured) return Order.findById(payment.orderId);
-  return applyCapturedQrPayment(req, payment, captured);
-}
-
-async function closeUnpaidQr(payment) {
-  if (!payment?.gatewayQrId) return;
-  try {
-    await razorpay(
-      `payments/qr_codes/${encodeURIComponent(payment.gatewayQrId)}/close`,
-      "POST"
-    );
-  } catch (error) {
-    // Closing an already-closed QR is safe to retry, but a gateway error
-    // must NOT be treated as successful cancellation.
-    const qr = await razorpay(
-      `payments/qr_codes/${encodeURIComponent(payment.gatewayQrId)}`
-    );
-    if (qr.status !== "closed") throw error;
-  }
-}
-
-// ============================================
-// RECOVER ORDER: required by KioskPage.jsx
-// Only the customer holding the guest order key can access this endpoint.
-// QR is verified directly with Razorpay; a scan alone does not mean paid.
-// ============================================
-
-// Recover an online order if its payment captured but the webhook or
-// checkout callback did not reach this server. Never trust the client here.
-async function syncOnlinePayment(req, payment) {
-  const order = await Order.findById(payment.orderId);
-  if (!order || !payment.gatewayOrderId) return order;
-
-  const response = await razorpay(
-    `orders/${encodeURIComponent(payment.gatewayOrderId)}/payments`
-  );
-  const captured = (response.items || []).find((item) =>
-    item?.status === "captured" &&
-    item.order_id === payment.gatewayOrderId &&
-    item.currency === "INR" &&
-    item.amount === paise(order.total)
-  );
-
-  if (!captured) return order;
-
-  if (payment.transactionId && payment.transactionId !== captured.id) {
-    throw new Error("Conflicting online payment transaction.");
-  }
-
-  const duplicate = await Payment.findOne({
-    transactionId: captured.id,
-    _id: { $ne: payment._id },
-  });
-  if (duplicate) {
-    throw new Error("Payment transaction is linked to another order.");
-  }
-
-  await Payment.updateOne(
-    {
-      _id: payment._id,
-      status: { $ne: "Refunded" },
-      $or: [
-        { transactionId: captured.id },
-        { transactionId: "" },
-        { transactionId: null },
-        { transactionId: { $exists: false } },
-      ],
-    },
-    { $set: { status: "Completed", transactionId: captured.id } }
-  );
-
-  const updated = await Order.findOneAndUpdate(
-    {
-      _id: order._id,
-      status: "Pending",
-      paymentStatus: "Pending",
-    },
-    { $set: { paymentStatus: "Paid", pickupTime: "Choose your seat" } },
-    { new: true }
-  );
-
-  if (updated) {
-    notify(req, updated);
-    return updated;
-  }
-
-  const latest = await Order.findById(order._id);
-  if (latest?.status === "Cancelled") {
-    console.error(
-      "LATE ONLINE CAPTURE: cancelled order requires refund review:",
-      latest.orderNumber,
-      captured.id
-    );
-  }
-  return latest;
+  return syncCashfreePayment(req, payment);
 }
 
 router.get(
@@ -741,26 +828,12 @@ router.get(
   async (req, res) => {
     try {
       let order = await Order.findById(req.guestOrder._id);
-      if (!order) return fail(res, 404, "Order not found.");
 
-      if (order.paymentStatus === "Pending" && order.status === "Pending") {
-        if (order.paymentMethod === "Counter UPI" && onlineConfigured()) {
-          const payment = await Payment.findOne({
-            orderId: order._id,
-            paymentMethod: "Counter UPI",
-            gatewayQrId: { $exists: true, $nin: [null, ""] },
-          }).sort({ createdAt: -1 });
-          if (payment) order = await syncQrPayment(req, payment);
-        } else if (
-          order.paymentMethod === "Online (Razorpay)" && onlineConfigured()
-        ) {
-          const payment = await Payment.findOne({
-            orderId: order._id,
-            gatewayOrderId: { $exists: true, $nin: [null, ""] },
-          }).sort({ createdAt: -1 });
-          if (payment) order = await syncOnlinePayment(req, payment);
-        }
+      if (!order) {
+        return fail(res, 404, "Order not found.");
       }
+
+      order = (await recoverPayment(req, order)) || order;
 
       return res.json({
         success: true,
@@ -768,7 +841,21 @@ router.get(
         order: publicOrder(order),
       });
     } catch (error) {
-      console.error("Kiosk order recovery:", error);
+      console.error("Kiosk payment recovery:", error);
+
+      try {
+        const fallbackOrder = await Order.findById(req.guestOrder._id);
+        if (fallbackOrder) {
+          return res.json({
+            success: true,
+            paid: fallbackOrder.paymentStatus === "Paid",
+            order: publicOrder(fallbackOrder),
+          });
+        }
+      } catch {
+        // Continue to fail response
+      }
+
       return fail(
         res,
         502,
@@ -787,16 +874,10 @@ router.get(
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const order = await Order.findById(
-        req.guestOrder._id
-      );
+      const order = await Order.findById(req.guestOrder._id);
 
       if (!order) {
-        return fail(
-          res,
-          404,
-          "Order not found."
-        );
+        return fail(res, 404, "Order not found.");
       }
 
       if (order.paymentStatus !== "Paid") {
@@ -807,21 +888,11 @@ router.get(
         );
       }
 
-      if (
-        ["Cancelled", "Picked Up"].includes(
-          order.status
-        )
-      ) {
-        return fail(
-          res,
-          409,
-          "This order is already closed."
-        );
+      if (["Cancelled", "Picked Up"].includes(order.status)) {
+        return fail(res, 409, "This order is already closed.");
       }
 
-      const seats = await listSeats(
-        order.franchiseId
-      );
+      const seats = await listSeats(order.franchiseId);
 
       return res.json({
         success: true,
@@ -829,10 +900,7 @@ router.get(
         selectedSeat: order.seatNumber || null,
       });
     } catch (error) {
-      console.error(
-        "Kiosk available seats:",
-        error
-      );
+      console.error("Kiosk available seats:", error);
 
       return fail(
         res,
@@ -860,8 +928,9 @@ router.post(
         req.body?.seatNumber
       );
 
-      // Only verified QR orders are automatically accepted after
-      // the CUSTOMER selects a seat. Cash still follows admin review.
+      // Paid Counter UPI orders are automatically accepted
+      // after the customer chooses a seat.
+      // Cash orders continue through admin confirmation.
       if (
         order.paymentMethod === "Counter UPI" &&
         order.paymentStatus === "Paid" &&
@@ -881,7 +950,9 @@ router.post(
               $set: {
                 status: "Confirmed",
                 readyInMinutes: 15,
-                estimatedReadyTime: new Date(Date.now() + 15 * 60 * 1000),
+                estimatedReadyTime: new Date(
+                  Date.now() + 15 * 60 * 1000
+                ),
                 pickupTime: "Ready in about 15 minutes",
               },
             },
@@ -897,10 +968,7 @@ router.post(
         message: `Seat ${order.seatNumber} confirmed.`,
       });
     } catch (error) {
-      console.error(
-        "Customer seat selection:",
-        error
-      );
+      console.error("Customer seat selection:", error);
 
       return fail(
         res,
@@ -914,161 +982,190 @@ router.post(
 );
 
 // ============================================
-// DYNAMIC RAZORPAY UPI QR (AUTO-VERIFIED)
+// CASHFREE CHECKOUT SESSION
+// ONLINE PAYMENT + COUNTER UPI
 // ============================================
 
-async function createUpiQr(req, res) {
+async function createCheckoutSession(req, res, expectedMethod) {
   try {
     const order = await Order.findById(req.guestOrder._id);
+
     if (
       !order ||
-      order.paymentMethod !== "Counter UPI" ||
+      order.paymentMethod !== expectedMethod ||
       order.status !== "Pending" ||
       order.paymentStatus !== "Pending"
     ) {
-      return fail(res, 409, "This order is not eligible for a QR payment.");
-    }
-    if (!onlineConfigured()) {
-      return fail(res, 503, "Razorpay is not configured.");
+      return fail(
+        res,
+        409,
+        "This order is not eligible for payment."
+      );
     }
 
-    const deadline = new Date(order.createdAt).getTime() + QR_PAYMENT_TIMEOUT_MS;
+    if (!cashfreeConfigured()) {
+      return fail(res, 503, "Cashfree is not configured.");
+    }
+
+    const deadline =
+      new Date(order.createdAt).getTime() +
+      QR_PAYMENT_TIMEOUT_MS;
+
     if (Date.now() >= deadline) {
-      return fail(res, 409, "The two-minute payment window has expired.");
+      return fail(
+        res,
+        409,
+        "The two-minute payment window has expired."
+      );
     }
 
-    let payment = await Payment.findOne({
-      orderId: order._id,
-      paymentMethod: "Counter UPI",
-      gatewayQrId: { $exists: true, $nin: [null, ""] },
-    }).sort({ createdAt: -1 });
+    const payment = await createCashfreePayment(
+      req,
+      order,
+      expectedMethod
+    );
 
-    if (!payment) {
-      // Razorpay requires close_by to be at least 120s from QR creation.
-      // Kiosk still enforces the order's two-minute checkout deadline.
-      const closeBy = Math.ceil(Date.now() / 1000) + 125;
-      const qr = await razorpay("payments/qr_codes", "POST", {
-        type: "upi_qr",
-        name: `OfficeBite ${order.orderNumber}`.slice(0, 40),
-        usage: "single_use",
-        fixed_amount: true,
-        payment_amount: paise(order.total),
-        close_by: closeBy,
-        description: `OfficeBite order ${order.orderNumber}`.slice(0, 255),
-        notes: { officebiteOrderId: String(order._id) },
-      });
+    const latest = await Order.findById(order._id);
 
-      if (!qr?.id || !qr?.image_url || qr.status !== "active") {
-        return fail(res, 502, "Razorpay did not provide an active QR code.");
-      }
-
-      // If the customer cancelled while the gateway request was in flight,
-      // close the new QR instead of presenting it as payable.
-      const latest = await Order.findById(order._id);
-      if (
-        latest.status !== "Pending" ||
-        latest.paymentStatus !== "Pending" ||
-        Date.now() >= deadline
-      ) {
-        await closeUnpaidQr({ gatewayQrId: qr.id });
-        return fail(res, 409, "Order expired or was cancelled.");
-      }
-
-      payment = await Payment.create({
-        orderId: order._id,
-        userId: null,
-        amount: order.total,
-        paymentMethod: "Counter UPI",
-        status: "Initiated",
-        paymentId: `QR-${crypto.randomBytes(12).toString("hex")}`,
-        gatewayQrId: qr.id,
-        gatewayQrImageUrl: qr.image_url,
-        expiresAt: new Date(Number(qr.close_by || closeBy) * 1000),
-      });
+    if (
+      !latest ||
+      latest.status !== "Pending" ||
+      latest.paymentStatus !== "Pending" ||
+      Date.now() >= deadline
+    ) {
+      return fail(res, 409, "Order expired or was cancelled.");
     }
 
     return res.json({
       success: true,
-      // Current React kiosk reads imageUrl and closeBy.
-      // Keep previous names for backwards compatibility.
-      imageUrl: payment.gatewayQrImageUrl,
-      closeBy: payment.expiresAt,
-      qrDataUrl: payment.gatewayQrImageUrl,
-      qrId: payment.gatewayQrId,
-      amount: payment.amount,
+
+      gateway: "Cashfree",
+      environment:
+        cashfreeEnvironment() === "PRODUCTION"
+          ? "production"
+          : "sandbox",
+
+      orderId: payment.gatewayOrderId,
+      gatewayOrderId: payment.gatewayOrderId,
+
+      paymentSessionId: payment.paymentSessionId,
+      payment_session_id: payment.paymentSessionId,
+
+      amount: paise(order.total),
+      orderAmount: order.total,
       currency: "INR",
-      payeeName: "OfficeBite",
+
       orderNumber: order.orderNumber,
-      verification: "Automatic Razorpay verification",
       paymentDeadlineAt: new Date(deadline).toISOString(),
-      expiresAt: payment.expiresAt,
+
+      checkoutMode:
+        expectedMethod === "Counter UPI"
+          ? "UPI"
+          : "ALL",
+
+      verification: "Automatic Cashfree server-side verification",
     });
   } catch (error) {
-    console.error("Kiosk dynamic QR:", error);
-    return fail(res, 502, error.message || "Unable to generate payment QR.");
+    console.error("Cashfree checkout session:", error);
+
+    return fail(
+      res,
+      502,
+      error.message || "Unable to create Cashfree checkout."
+    );
   }
 }
 
-// GET is kept for compatibility with the current KioskPage.jsx.
-// Prefer POST for new frontend integrations because QR creation has side effects.
+// Existing kiosk frontend route names are preserved.
+// The response now contains paymentSessionId instead of a Razorpay QR image.
+
 router.get(
   "/orders/:id/upi-qr",
   throttle(90, 5 * 60 * 1000),
   ownedGuestOrder,
-  createUpiQr
+  (req, res) =>
+    createCheckoutSession(req, res, "Counter UPI")
 );
+
 router.post(
   "/orders/:id/upi-qr",
   throttle(90, 5 * 60 * 1000),
   ownedGuestOrder,
-  createUpiQr
+  (req, res) =>
+    createCheckoutSession(req, res, "Counter UPI")
 );
 
-// Frontend polling: never infer payment from a scanned QR or typed UTR.
+// ============================================
+// COUNTER UPI PAYMENT STATUS
+// ============================================
+
 router.get(
   "/orders/:id/upi-status",
   throttle(180, 5 * 60 * 1000),
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const order = await Order.findById(req.guestOrder._id);
+      let order = await Order.findById(req.guestOrder._id);
+
       if (!order || order.paymentMethod !== "Counter UPI") {
         return fail(res, 404, "UPI order not found.");
       }
 
-      if (order.paymentStatus === "Paid" || order.status === "Cancelled") {
-        return res.json({
-          success: true,
-          paid: order.paymentStatus === "Paid",
-          order: publicOrder(order),
-        });
+      if (
+        order.paymentStatus !== "Paid" &&
+        order.status !== "Cancelled"
+      ) {
+        order = (await recoverPayment(req, order)) || order;
       }
 
-      const payment = await Payment.findOne({
-        orderId: order._id,
-        gatewayQrId: { $exists: true, $nin: [null, ""] },
-      }).sort({ createdAt: -1 });
-      const updated = payment ? await syncQrPayment(req, payment) : order;
       return res.json({
         success: true,
-        paid: updated.paymentStatus === "Paid",
-        order: publicOrder(updated),
+        paid: order.paymentStatus === "Paid",
+        order: publicOrder(order),
       });
     } catch (error) {
-      console.error("QR status check:", error);
-      return fail(res, 502, "Unable to verify QR payment right now.");
+      console.error("Cashfree UPI status check:", error);
+
+      try {
+        const fallbackOrder = await Order.findById(req.guestOrder._id);
+        if (fallbackOrder) {
+          return res.json({
+            success: true,
+            paid: fallbackOrder.paymentStatus === "Paid",
+            order: publicOrder(fallbackOrder),
+          });
+        }
+      } catch {
+        // Continue to fail response
+      }
+
+      return fail(
+        res,
+        502,
+        "Unable to verify payment right now."
+      );
     }
   }
 );
 
-// Manual UTR submission is intentionally disabled: it cannot prove payment.
-router.post("/orders/:id/upi-reference", ownedGuestOrder, (_req, res) =>
-  fail(res, 410, "UPI reference entry was replaced with automatic QR verification.")
+// Manual UTR submission is disabled.
+// Payment must be confirmed by Cashfree.
+
+router.post(
+  "/orders/:id/upi-reference",
+  ownedGuestOrder,
+  (_req, res) =>
+    fail(
+      res,
+      410,
+      "Manual UPI reference entry is disabled. Payment is verified automatically by Cashfree."
+    )
 );
 
-// Cancel or time out an UNPAID kiosk order.
-// This route does not refund captured payments.
-// Both URLs are recognized by Express; KioskPage.jsx calls /cancel.
+// ============================================
+// CANCEL OR TIME OUT UNPAID ORDER
+// ============================================
+
 router.post(
   ["/orders/:id/cancel", "/orders/:id/cancel-payment"],
   throttle(90, 5 * 60 * 1000),
@@ -1076,60 +1173,66 @@ router.post(
   async (req, res) => {
     try {
       let order = await Order.findById(req.guestOrder._id);
-      if (!order) return fail(res, 404, "Order not found.");
+
+      if (!order) {
+        return fail(res, 404, "Order not found.");
+      }
+
       if (order.status === "Cancelled") {
-        return res.json({ success: true, cancelled: true, order: publicOrder(order) });
-      }
-      if (order.paymentStatus !== "Pending" || order.status !== "Pending") {
-        return fail(res, 409, "Order already paid or being prepared. Recheck status.");
+        return res.json({
+          success: true,
+          cancelled: true,
+          order: publicOrder(order),
+        });
       }
 
-      if (order.paymentMethod === "Counter UPI") {
+      if (
+        order.paymentStatus !== "Pending" ||
+        order.status !== "Pending"
+      ) {
+        return fail(
+          res,
+          409,
+          "Order already paid or being prepared. Recheck status."
+        );
+      }
+
+      if (
+        ["Online (Cashfree)", "Counter UPI"].includes(
+          order.paymentMethod
+        )
+      ) {
         const payment = await Payment.findOne({
           orderId: order._id,
-          paymentMethod: "Counter UPI",
-          gatewayQrId: { $exists: true, $nin: [null, ""] },
-        }).sort({ createdAt: -1 });
-
-        if (payment) {
-          order = await syncQrPayment(req, payment);
-          if (order.paymentStatus === "Paid") {
-            return fail(res, 409, "Payment received. Please choose a seat.");
-          }
-
-          await closeUnpaidQr(payment);
-          order = await syncQrPayment(req, payment);
-          if (order.paymentStatus === "Paid") {
-            return fail(res, 409, "Payment completed during cancellation. Choose a seat.");
-          }
-        }
-      }
-
-      if (order.paymentMethod === "Online (Razorpay)") {
-        const payment = await Payment.findOne({
-          orderId: order._id,
+          gatewayName: "Cashfree",
           gatewayOrderId: { $exists: true, $nin: [null, ""] },
         }).sort({ createdAt: -1 });
+
         if (payment) {
-          const info = await razorpay(
-            `orders/${encodeURIComponent(payment.gatewayOrderId)}/payments`
-          );
-          if (
-            (info.items || []).some(
-              (item) => item.status === "captured" || item.status === "authorized"
-            )
-          ) {
-            return fail(res, 409, "Online payment may have succeeded. Verify before cancelling.");
+          order = await syncCashfreePayment(req, payment);
+
+          if (order?.paymentStatus === "Paid") {
+            return fail(
+              res,
+              409,
+              "Payment received. Please continue with seat selection."
+            );
           }
         }
       }
 
       const cancelled = await Order.findOneAndUpdate(
-        { _id: order._id, status: "Pending", paymentStatus: "Pending" },
+        {
+          _id: order._id,
+          status: "Pending",
+          paymentStatus: "Pending",
+        },
         {
           $set: {
             status: "Cancelled",
-            cancelReason: String(req.body?.reason || "Cancelled by customer").slice(0, 200),
+            cancelReason: String(
+              req.body?.reason || "Cancelled by customer"
+            ).slice(0, 200),
             pickupTime: "Cancelled",
           },
         },
@@ -1137,10 +1240,15 @@ router.post(
       );
 
       if (!cancelled) {
-        return fail(res, 409, "Order status changed. Check payment before retrying.");
+        return fail(
+          res,
+          409,
+          "Order status changed. Check payment before retrying."
+        );
       }
 
       notify(req, cancelled);
+
       return res.json({
         success: true,
         cancelled: true,
@@ -1148,13 +1256,18 @@ router.post(
       });
     } catch (error) {
       console.error("Cancel kiosk payment:", error);
-      return fail(res, 502, "Cancellation could not be verified. Keep the order open and retry.");
+
+      return fail(
+        res,
+        502,
+        "Cancellation could not be verified. Keep the order open and retry."
+      );
     }
   }
 );
 
 // ============================================
-// RAZORPAY PAYMENT INITIATION
+// ONLINE CASHFREE PAYMENT INITIATION
 // ============================================
 
 router.post(
@@ -1164,21 +1277,21 @@ router.post(
     try {
       const order = await Order.findById(req.guestOrder._id);
 
-      if (!onlineConfigured()) {
-        return fail(
-          res,
-          503,
-          "Razorpay is not configured."
-        );
+      if (!order) {
+        return fail(res, 404, "Order not found.");
+      }
+
+      if (!cashfreeConfigured()) {
+        return fail(res, 503, "Cashfree is not configured.");
       }
 
       if (
-        order.paymentMethod !==
-          "Online (Razorpay)" ||
-        order.status === "Cancelled" ||
-        order.paymentStatus !== "Pending" ||
+        order.paymentMethod !== "Online (Cashfree)" ||
         order.status !== "Pending" ||
-        Date.now() >= new Date(order.createdAt).getTime() + QR_PAYMENT_TIMEOUT_MS
+        order.paymentStatus !== "Pending" ||
+        Date.now() >=
+          new Date(order.createdAt).getTime() +
+            QR_PAYMENT_TIMEOUT_MS
       ) {
         return fail(
           res,
@@ -1187,82 +1300,47 @@ router.post(
         );
       }
 
-      let payment = await Payment.findOne({
-        orderId: order._id,
-
-        status: {
-          $in: ["Initiated", "Processing"],
-        },
-      }).sort({
-        createdAt: -1,
-      });
-
-      if (!payment) {
-        const gatewayOrder = await razorpay(
-          "orders",
-          "POST",
-          {
-            amount: paise(order.total),
-            currency: "INR",
-
-            receipt: order.orderNumber.slice(
-              0,
-              40
-            ),
-
-            notes: {
-              officebiteOrderId: String(
-                order._id
-              ),
-            },
-          }
-        );
-
-        payment = await Payment.create({
-          orderId: order._id,
-          userId: null,
-
-          amount: order.total,
-          paymentMethod: order.paymentMethod,
-
-          status: "Initiated",
-
-          paymentId: `KIOSK-${crypto
-            .randomBytes(10)
-            .toString("hex")}`,
-
-          gatewayOrderId: gatewayOrder.id,
-        });
-      }
+      const payment = await createCashfreePayment(
+        req,
+        order,
+        "Online (Cashfree)"
+      );
 
       return res.json({
         success: true,
+        gateway: "Cashfree",
 
-        keyId: process.env.RAZORPAY_KEY_ID,
+        environment:
+          cashfreeEnvironment() === "PRODUCTION"
+            ? "production"
+            : "sandbox",
 
-        gatewayOrderId:
-          payment.gatewayOrderId,
+        gatewayOrderId: payment.gatewayOrderId,
+        orderId: payment.gatewayOrderId,
+
+        paymentSessionId: payment.paymentSessionId,
+        payment_session_id: payment.paymentSessionId,
 
         amount: paise(order.total),
+        orderAmount: order.total,
         currency: "INR",
+
+        orderNumber: order.orderNumber,
       });
     } catch (error) {
-      console.error(
-        "Kiosk payment initiate:",
-        error
-      );
+      console.error("Kiosk Cashfree payment initiate:", error);
 
       return fail(
         res,
         502,
-        "Could not initiate payment."
+        error.message || "Could not initiate Cashfree payment."
       );
     }
   }
 );
 
 // ============================================
-// RAZORPAY PAYMENT VERIFICATION
+// CASHFREE PAYMENT VERIFICATION
 // ============================================
 
 router.post(
@@ -1270,156 +1348,92 @@ router.post(
   ownedGuestOrder,
   async (req, res) => {
     try {
-      const {
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature,
-      } = req.body || {};
+      const gatewayOrderId =
+        req.body?.order_id ||
+        req.body?.orderId ||
+        req.body?.cf_order_id ||
+        req.body?.gatewayOrderId;
 
       if (
-        ![
-          razorpay_order_id,
-          razorpay_payment_id,
-          razorpay_signature,
-        ].every(
-          (value) =>
-            typeof value === "string"
-        )
+        typeof gatewayOrderId !== "string" ||
+        !gatewayOrderId.trim()
       ) {
-        return fail(
-          res,
-          400,
-          "Missing payment data."
-        );
+        return fail(res, 400, "Missing Cashfree order ID.");
       }
 
       const order = await Order.findById(req.guestOrder._id);
-      if (!order || order.status === "Cancelled") {
-        return fail(res, 409, "This order was cancelled. Any received funds require refund review.");
+
+      if (!order) {
+        return fail(res, 404, "Order not found.");
+      }
+
+      if (
+        !["Online (Cashfree)", "Counter UPI"].includes(
+          order.paymentMethod
+        )
+      ) {
+        return fail(res, 403, "Payment method mismatch.");
       }
 
       const payment = await Payment.findOne({
         orderId: order._id,
-        gatewayOrderId: razorpay_order_id,
+        gatewayOrderId,
+        gatewayName: "Cashfree",
       });
 
-      if (
-        !payment ||
-        order.paymentMethod !==
-          "Online (Razorpay)"
-      ) {
-        return fail(
-          res,
-          403,
-          "Payment mismatch."
-        );
+      if (!payment) {
+        return fail(res, 403, "Payment mismatch.");
       }
 
-      const expected = crypto
-        .createHmac(
-          "sha256",
-          process.env.RAZORPAY_KEY_SECRET
-        )
-        .update(
-          `${payment.gatewayOrderId}|${razorpay_payment_id}`
-        )
-        .digest("hex");
-
-      if (
-        !matchingSignature(
-          expected,
-          razorpay_signature
-        )
-      ) {
-        return fail(
-          res,
-          403,
-          "Invalid payment signature."
-        );
-      }
-
-      // Confirm payment is captured by Razorpay.
-
-      const captured = await razorpay(
-        `payments/${encodeURIComponent(
-          razorpay_payment_id
-        )}`
+      const response = await getCashfreePayments(
+        payment.gatewayOrderId
       );
 
-      if (
-        captured.status !== "captured" ||
-        captured.order_id !==
-          payment.gatewayOrderId ||
-        captured.currency !== "INR" ||
-        captured.amount !== paise(order.total)
-      ) {
+      const captured = findSuccessfulPayment(
+        response,
+        order.total
+      );
+
+      if (!captured) {
         return fail(
           res,
           409,
-          "Payment capture is pending. Check status before retrying."
+          "Payment is not successful yet. Please check payment status again."
         );
       }
 
-      if (
-        payment.transactionId &&
-        payment.transactionId !== captured.id
-      ) {
-        return fail(
-          res,
-          409,
-          "Payment transaction mismatch."
-        );
+      const updated = await markCashfreeOrderPaid(
+        req,
+        payment,
+        captured
+      );
+
+      if (!updated) {
+        return fail(res, 404, "Order not found.");
       }
-
-      await Payment.updateOne(
-        {
-          _id: payment._id,
-          status: { $ne: "Completed" },
-        },
-        {
-          $set: {
-            status: "Completed",
-            transactionId: captured.id,
-          },
-        }
-      );
-
-      await Order.updateOne(
-        {
-          _id: order._id,
-          paymentStatus: "Pending",
-          status: { $ne: "Cancelled" },
-        },
-        {
-          $set: {
-            paymentStatus: "Paid",
-          },
-        }
-      );
-
-      const updated = await Order.findById(
-        order._id
-      );
 
       if (updated.status === "Cancelled") {
-        console.error("Late captured online payment requires refund review", updated.orderNumber);
-        return fail(res, 409, "Order cancelled while payment completed. Contact support for refund.");
+        console.error(
+          "Cancelled order received Cashfree payment:",
+          updated.orderNumber
+        );
+
+        return fail(
+          res,
+          409,
+          "Payment was received for a cancelled order. Please contact support for refund review."
+        );
       }
-      notify(req, updated);
 
       return res.json({
         success: true,
-
+        paid: updated.paymentStatus === "Paid",
         order: publicOrder(updated),
-
         message:
           "Payment successful. Please choose an available seat.",
       });
     } catch (error) {
-      console.error(
-        "Kiosk payment verify:",
-        error
-      );
+      console.error("Kiosk Cashfree payment verify:", error);
 
       return fail(
         res,
@@ -1431,182 +1445,136 @@ router.post(
 );
 
 // ============================================
-// RAZORPAY WEBHOOK
+// CASHFREE WEBHOOK
 // ============================================
 
-// Important:
-// The webhook must receive the RAW request body.
-// Configure express.raw() before express.json()
-// for this endpoint in the application.
+// IMPORTANT:
+// app.js must register express.raw() for
+// /api/kiosk/cashfree/webhook BEFORE express.json().
 
 router.post(
-  "/razorpay/webhook",
+  "/cashfree/webhook",
   async (req, res) => {
     try {
-      const secret =
-        process.env.RAZORPAY_WEBHOOK_SECRET;
+      const rawBody = req.body;
 
-      if (
-        !secret ||
-        !Buffer.isBuffer(req.body)
-      ) {
+      const timestamp = req.get("x-webhook-timestamp");
+      const signature = req.get("x-webhook-signature");
+
+      if (!Buffer.isBuffer(rawBody)) {
         return res.status(503).json({
           success: false,
+          message: "Raw webhook body is required.",
         });
       }
 
-      const expected = crypto
-        .createHmac("sha256", secret)
-        .update(req.body)
-        .digest("hex");
+      const valid = cashfreeWebhookSignature(
+        rawBody,
+        timestamp,
+        signature
+      );
 
-      if (
-        !matchingSignature(
-          expected,
-          req.get("x-razorpay-signature")
-        )
-      ) {
+      if (!valid) {
         return res.status(401).json({
           success: false,
         });
       }
 
-      const event = JSON.parse(
-        req.body.toString("utf8")
-      );
+      let event;
 
-      if (event.event === "qr_code.credited") {
-        const qrId = event.payload?.qr_code?.entity?.id;
-        const captured = event.payload?.payment?.entity;
-
-        if (!qrId || !captured) {
-          return res.status(400).json({ success: false });
-        }
-        const payment = await Payment.findOne({
-          gatewayQrId: qrId,
-          paymentMethod: "Counter UPI",
-        });
-        if (!payment) {
-          // May arrive before the QR record is persisted; Razorpay retries
-          // non-2xx errors. Polling also acts as a reconciliation fallback.
-          return res.status(503).json({ success: false });
-        }
-        const updated = await applyCapturedQrPayment(req, payment, captured);
-        return res.json({
-          success: true,
-          paid: updated?.paymentStatus === "Paid",
-        });
-      }
-
-      if (
-        event.event !==
-        "payment.captured"
-      ) {
-        return res.json({
-          success: true,
-        });
-      }
-
-      const captured =
-        event.payload?.payment?.entity;
-
-      if (
-        !captured ||
-        captured.currency !== "INR" ||
-        captured.status !== "captured"
-      ) {
+      try {
+        event = JSON.parse(rawBody.toString("utf8"));
+      } catch {
         return res.status(400).json({
           success: false,
         });
       }
 
-      const payment = await Payment.findOne({
-        gatewayOrderId: captured.order_id,
-      });
+      const data = event.data || {};
+      const gatewayOrderId = data.order?.order_id;
+      const captured = data.payment;
 
-      if (!payment) {
+      if (
+        !gatewayOrderId ||
+        !captured ||
+        captured.payment_status !== "SUCCESS" ||
+        !captured.cf_payment_id
+      ) {
+        // Other Cashfree webhook event types do not mark an order paid.
         return res.json({
           success: true,
           ignored: true,
         });
       }
 
-      const order = await Order.findById(
-        payment.orderId
-      );
+      const payment = await Payment.findOne({
+        gatewayOrderId,
+        gatewayName: "Cashfree",
+      });
+
+      if (!payment) {
+        // Return a retryable response if the local payment record
+        // is not available yet.
+        return res.status(503).json({
+          success: false,
+          message: "Payment record not found.",
+        });
+      }
+
+      const order = await Order.findById(payment.orderId);
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+        });
+      }
 
       if (
-        !order ||
-        order.paymentMethod !==
-          "Online (Razorpay)" ||
-        payment.amount !== order.total ||
-        captured.amount !== paise(order.total)
+        !["Online (Cashfree)", "Counter UPI"].includes(
+          order.paymentMethod
+        ) ||
+        paise(payment.amount) !== paise(order.total) ||
+        Math.round(Number(captured.payment_amount) * 100) !==
+          paise(order.total)
       ) {
         return res.status(409).json({
           success: false,
         });
       }
 
+      // Verify with Cashfree API as an additional server-side check.
+      const payments = await getCashfreePayments(
+        payment.gatewayOrderId
+      );
+
+      const verified = findSuccessfulPayment(
+        payments,
+        order.total
+      );
+
       if (
-        payment.transactionId &&
-        payment.transactionId !== captured.id
+        !verified ||
+        String(verified.cf_payment_id) !==
+          String(captured.cf_payment_id)
       ) {
-        return fail(
-          res,
-          409,
-          "Payment transaction mismatch."
-        );
+        return res.status(409).json({
+          success: false,
+        });
       }
 
-      await Payment.updateOne(
-        {
-          _id: payment._id,
-          status: { $ne: "Completed" },
-        },
-        {
-          $set: {
-            status: "Completed",
-            transactionId: captured.id,
-          },
-        }
+      const updated = await markCashfreeOrderPaid(
+        req,
+        payment,
+        verified
       );
-
-      await Order.updateOne(
-        {
-          _id: order._id,
-          paymentStatus: "Pending",
-          status: { $ne: "Cancelled" },
-        },
-        {
-          $set: {
-            paymentStatus: "Paid",
-          },
-        }
-      );
-
-      const updated = await Order.findById(
-        order._id
-      );
-
-      if (updated.status === "Cancelled") {
-        console.error("Late online capture requires refund review", updated.orderNumber);
-        return res.json({ success: true, refundReviewRequired: true });
-      }
-      notify(req, updated);
 
       return res.json({
         success: true,
-        paymentStatus: "Paid",
-
-        seatAssigned: Boolean(
-          updated?.seatNumber
-        ),
+        paymentStatus: updated?.paymentStatus,
+        seatAssigned: Boolean(updated?.seatNumber),
       });
     } catch (error) {
-      console.error(
-        "Razorpay webhook:",
-        error
-      );
+      console.error("Cashfree kiosk webhook:", error);
 
       return res.status(500).json({
         success: false,

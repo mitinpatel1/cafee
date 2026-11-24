@@ -42,8 +42,27 @@ const allowedOrigins = (
   "http://localhost:5173,http://127.0.0.1:5173"
 )
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) =>
+    origin.trim().replace(/\/$/, "")
+  )
   .filter(Boolean);
+
+// =====================================================
+// CASHFREE CONFIGURATION STATUS
+// =====================================================
+
+function isCashfreeConfigured() {
+  return Boolean(
+    process.env.CASHFREE_APP_ID &&
+    process.env.CASHFREE_SECRET_KEY
+  );
+}
+
+function getCashfreeEnvironment() {
+  return (
+    process.env.CASHFREE_ENV || "SANDBOX"
+  ).toUpperCase();
+}
 
 // =====================================================
 // HTTP SERVER
@@ -65,25 +84,20 @@ const io = new Server(server, {
     credentials: true,
   },
 
-  // Allow polling and websocket
   transports: ["polling", "websocket"],
 
-  // Connection heartbeat
   pingTimeout: 20000,
   pingInterval: 25000,
 
-  // Maximum individual socket message size
   maxHttpBufferSize: 1e6,
 
-  // Serve client from frontend dependencies
   serveClient: false,
 });
 
-// Make Socket.IO available inside Express routes
+// Make Socket.IO available inside Express routes.
 app.set("io", io);
 
-// Register existing Socket.IO authentication,
-// room permissions and event handlers.
+// Register existing Socket.IO handlers.
 setupSocket(io);
 
 // =====================================================
@@ -123,6 +137,19 @@ function validateEnvironment() {
   }
 
   console.log("Environment configuration validated.");
+
+  // Cashfree is optional during development.
+  // Missing credentials must not stop backend startup.
+
+  if (isCashfreeConfigured()) {
+    console.log(
+      `Cashfree configured (${getCashfreeEnvironment()}).`
+    );
+  } else {
+    console.warn(
+      "Cashfree is not configured. Online payments are disabled."
+    );
+  }
 }
 
 // =====================================================
@@ -156,6 +183,7 @@ async function initializeDatabase() {
   await connectDB();
 
   console.log("MongoDB connected successfully.");
+
   console.log(
     "Database:",
     mongoose.connection.name
@@ -173,7 +201,9 @@ async function initializeMenu() {
 
   await seedAllFranchises();
 
-  console.log("Daily menu initialization completed.");
+  console.log(
+    "Daily menu initialization completed."
+  );
 
   console.log(
     "Breakfast: 10 | Lunch: 15 | Snacks: 15 | Beverages: 10"
@@ -233,11 +263,35 @@ async function start() {
     console.log("====================================");
     console.log(" OFFICEBITE SERVER RUNNING");
     console.log("====================================");
-    console.log(`Backend: http://localhost:${PORT}`);
-    console.log(`Health:  http://localhost:${PORT}/api/health`);
-    console.log(`Socket:  /socket.io`);
-    console.log(`Frontend: ${allowedOrigins.join(", ")}`);
-    console.log(`Database: ${mongoose.connection.name}`);
+
+    console.log(
+      `Backend: http://localhost:${PORT}`
+    );
+
+    console.log(
+      `Health: http://localhost:${PORT}/api/health`
+    );
+
+    console.log(
+      `Socket: ${SOCKET_PATH}`
+    );
+
+    console.log(
+      `Frontend: ${allowedOrigins.join(", ")}`
+    );
+
+    console.log(
+      `Database: ${mongoose.connection.name}`
+    );
+
+    console.log(
+      `Cashfree: ${
+        isCashfreeConfigured()
+          ? `Enabled (${getCashfreeEnvironment()})`
+          : "Disabled"
+      }`
+    );
+
     console.log("====================================");
     console.log("");
 
@@ -257,7 +311,9 @@ async function shutdown(signal) {
 
   shuttingDown = true;
 
-  console.log(`Received ${signal}. Shutting down...`);
+  console.log(
+    `Received ${signal}. Shutting down...`
+  );
 
   try {
     await new Promise((resolve) => {
@@ -268,13 +324,17 @@ async function shutdown(signal) {
       await mongoose.disconnect();
     }
 
-    console.log("Server stopped successfully.");
+    console.log(
+      "Server stopped successfully."
+    );
+
     process.exit(0);
   } catch (error) {
     console.error(
       "Shutdown failed:",
       error.message
     );
+
     process.exit(1);
   }
 }
@@ -312,14 +372,6 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-const Razorpay = require("razorpay");
-
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
-
-
 
 // =====================================================
 // EXPORTS
@@ -330,5 +382,4 @@ module.exports = {
   server,
   io,
   start,
-  razorpay,
 };

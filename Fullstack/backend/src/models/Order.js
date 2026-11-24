@@ -103,7 +103,7 @@ const orderSchema = new mongoose.Schema(
     items: [orderItemSchema],
 
     // ========================================
-    // PRICE CALCULATION — NO TAX
+    // PRICE CALCULATION
     // ========================================
 
     subtotal: {
@@ -154,6 +154,7 @@ const orderSchema = new mongoose.Schema(
         "Counter Cash",
         "Counter UPI",
         "Online (Razorpay)",
+        "Online (Cashfree)",
       ],
       required: true,
     },
@@ -248,7 +249,4 @@ orderSchema.pre("save", function () {
 // EXPORT MODEL
 // ============================================
 
-module.exports = mongoose.model(
-  "Order",
-  orderSchema
-);
+module.exports = mongoose.model("Order", orderSchema);

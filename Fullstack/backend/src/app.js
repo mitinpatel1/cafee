@@ -65,8 +65,33 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // ============================================
-// RAZORPAY WEBHOOK — RAW BODY
+// CASHFREE WEBHOOK — RAW BODY
 // Must be BEFORE express.json()
+// ============================================
+
+// Cashfree webhook signature verification
+// requires the original, unmodified request body.
+
+app.use(
+  "/api/kiosk/cashfree/webhook",
+  express.raw({
+    type: "application/json",
+    limit: "1mb",
+  })
+);
+
+// Payment routes Cashfree webhook compatibility
+app.use(
+  "/api/payments/cashfree/webhook",
+  express.raw({
+    type: "application/json",
+    limit: "1mb",
+  })
+);
+
+// ============================================
+// RAZORPAY WEBHOOK — RAW BODY
+// Keep temporarily for old payment compatibility.
 // ============================================
 
 app.use(
@@ -77,7 +102,6 @@ app.use(
   })
 );
 
-// Existing payment webhook compatibility
 app.use(
   "/api/payments/webhook",
   express.raw({
@@ -169,10 +193,8 @@ app.get("/api/health", (req, res) => {
 });
 
 // ============================================
-// EXISTING AUTHENTICATION ROUTES
+// AUTHENTICATION ROUTES
 // ============================================
-
-// Admin and Franchise login remain secure.
 
 app.use(
   "/api/auth",
@@ -198,7 +220,7 @@ app.use(
 );
 
 // ============================================
-// EXISTING PAYMENT ROUTES
+// PAYMENT ROUTES
 // ============================================
 
 app.use(
@@ -225,17 +247,17 @@ app.use(
 );
 
 // ============================================
-// NEW SELF-SERVICE KIOSK ROUTES
+// SELF-SERVICE KIOSK ROUTES
 // ============================================
 
-// Customer login is NOT required.
-//
 // Supports:
 // - Guest ordering
-// - Online payment
-// - Razorpay verification
+// - Cashfree online checkout
+// - Cashfree payment verification
+// - Cashfree webhook
 // - Order tracking
-// - Seat number display
+// - Seat assignment
+// - Counter payment workflows
 
 app.use(
   "/api/kiosk",
@@ -271,11 +293,6 @@ if (fs.existsSync(frontendIndex)) {
   app.use(
     express.static(frontendDist)
   );
-
-  // Supports React Router refresh
-  // /kiosk
-  // /admin/dashboard
-  // /franchise/dashboard
 
   app.get("*", (req, res) => {
     return res.sendFile(frontendIndex);
@@ -345,9 +362,6 @@ app.use((error, req, res, next) => {
 // ============================================
 // EXPORT EXPRESS APP
 // ============================================
-
-// Existing backend/index.js uses these exports.
-// Socket.IO is initialized in index.js.
 
 module.exports = {
   app,

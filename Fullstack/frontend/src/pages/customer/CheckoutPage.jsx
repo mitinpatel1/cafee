@@ -364,7 +364,7 @@ export const CheckoutPage = () => {
               <Banknote size={22} />
 
               <span>
-                <b>Cash at Counter</b>
+                <b>Cash on Counter</b>
                 <small>
                   Pay first. Staff confirms receipt
                   before accepting the order.

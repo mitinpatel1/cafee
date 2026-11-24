@@ -1785,7 +1785,7 @@ const KIOSK_STYLES = String.raw`
 .cafe-cancel-payment:hover:not(:disabled) { background: #fff1ed; }
 .cafe-cancel-payment:disabled { opacity: .55; cursor: wait; }
 
-/* Display only the QR scanning area of Razorpay's portrait QR artwork. */
+/* Display only the QR scanning area of Cashfree's portrait QR artwork. */
 .cafe-qr-payment {
   display: flex;
   flex-direction: column;
@@ -1810,7 +1810,7 @@ const KIOSK_STYLES = String.raw`
 }
 .cafe-qr-only img {
   position: absolute;
-  /* Razorpay returns portrait branded art; zoom into the centered QR square. */
+  /* Cashfree returns portrait branded art; zoom into the centered QR square. */
   width: 150%;
   height: auto;
   max-width: none;
@@ -1865,7 +1865,7 @@ const KIOSK_STYLES = String.raw`
 // HELPERS
 // ============================================
 
-const PAYMENT_TIMEOUT = 60_000;
+const PAYMENT_TIMEOUT = 2 * 60_000;
 
 const fmt = (value) =>
   `₹${Number(value || 0).toFixed(2)}`;
@@ -1915,46 +1915,45 @@ async function api(path, options = {}) {
 }
 
 // ============================================
-// RAZORPAY SCRIPT
+// CASHFREE CHECKOUT SDK
 // ============================================
 
-let razorpayScriptPromise;
+let cashfreeScriptPromise;
 
-function loadRazorpay() {
-  if (window.Razorpay) {
-    return Promise.resolve();
-  }
+function loadCashfree() {
+  if (window.Cashfree) return Promise.resolve();
 
-  if (!razorpayScriptPromise) {
-    razorpayScriptPromise = new Promise(
-      (resolve, reject) => {
-        const script = document.createElement("script");
+  if (!cashfreeScriptPromise) {
+    cashfreeScriptPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector(
+        'script[src="https://sdk.cashfree.com/js/v3/cashfree.js"]'
+      );
 
-        script.src =
-          "https://checkout.razorpay.com/v1/checkout.js";
-
-        script.async = true;
-
-        script.onload = resolve;
-
-        script.onerror = () =>
-          reject(
-            new Error(
-              "Payment gateway could not load."
-            )
-          );
-
-        document.head.appendChild(script);
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener(
+          "error",
+          () => reject(new Error("Cashfree Checkout could not load.")),
+          { once: true }
+        );
+        return;
       }
-    ).catch((error) => {
-      razorpayScriptPromise = null;
+
+      const script = document.createElement("script");
+      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () =>
+        reject(new Error("Cashfree Checkout could not load. Please check your internet connection."));
+      document.head.appendChild(script);
+    }).catch((error) => {
+      cashfreeScriptPromise = null;
       throw error;
     });
   }
 
-  return razorpayScriptPromise;
+  return cashfreeScriptPromise;
 }
-
 
 // ============================================
 // KEEP THE CURRENT GUEST ORDER ON PAGE REFRESH
@@ -2076,7 +2075,7 @@ const [nonVegOnly, setNonVegOnly] = useState(false);
               1000
           )
         )
-      : 60
+      : 120
   );
 
   const [busy, setBusy] = useState(false);
@@ -2146,7 +2145,7 @@ const [nonVegOnly, setNonVegOnly] = useState(false);
         // Do not overwrite a restored order's original payment method.
         if (!restoredOrder) {
           setMethod(
-            enabled ? "Online (Razorpay)" : "Counter Cash"
+            enabled ? "Online (Cashfree)" : "Counter Cash"
           );
         }
       })
@@ -2377,7 +2376,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
     setSeatChoice(null);
     setUpiQr(null);
 
-    setPaymentSeconds(60);
+    setPaymentSeconds(120);
 
     setSeats({
       capacity: 0,
@@ -2390,7 +2389,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
 
     setMethod(
       onlineEnabled
-        ? "Online (Razorpay)"
+        ? "Online (Cashfree)"
         : "Counter Cash"
     );
   }, [onlineEnabled]);
@@ -2726,13 +2725,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
           !paid(activeOrderRef.current.order)
         ) {
           const pending = activeOrderRef.current;
-          // QR payments may be credited late; never reset while a QR is
-          // still within its provider-supplied validity window.
-          if (pending.method === "Counter UPI" && qrEnabled &&
-            (!pending.qrCloseBy || new Date(pending.qrCloseBy).getTime() > Date.now())) {
-            setError("Waiting for verified QR payment or QR expiry. Your order remains saved.");
-            return;
-          }
           reset();
         }
       } catch {
@@ -2754,7 +2746,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
   );
 
   // ============================================
-  // 60-SECOND PAYMENT COUNTDOWN
+  // 2-MINUTE PAYMENT COUNTDOWN
   // ============================================
 
   useEffect(() => {
@@ -2766,9 +2758,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
       return;
     }
 
-    const deadline = activeOrder?.qrCloseBy
-      ? Math.max(activeOrder.createdAtMs + PAYMENT_TIMEOUT, new Date(activeOrder.qrCloseBy).getTime())
-      : activeOrder.createdAtMs + PAYMENT_TIMEOUT;
+    const deadline = activeOrder.createdAtMs + PAYMENT_TIMEOUT;
 
     const tick = () => {
       const remaining = Math.max(
@@ -2803,121 +2793,89 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
   ]);
 
   // ============================================
-  // ONLINE PAYMENT
+  // CASHFREE CHECKOUT + SERVER-SIDE VERIFICATION
   // ============================================
 
-  async function payOnline(order, key) {
-    await loadRazorpay();
+  async function launchCashfreeCheckout(order, key, session) {
+    await loadCashfree();
 
-    const payment = await api(
-      `/kiosk/orders/${order._id}/pay`,
+    if (!window.Cashfree) {
+      throw new Error("Cashfree Checkout SDK is unavailable.");
+    }
+
+    const mode = session.environment === "production" ? "production" : "sandbox";
+    const cashfree = window.Cashfree({ mode });
+
+    if (!session.paymentSessionId || !session.gatewayOrderId) {
+      throw new Error("Cashfree session details are missing. Please retry.");
+    }
+
+    try {
+      await cashfree.checkout({
+        paymentSessionId: session.paymentSessionId,
+        redirectTarget: "_modal",
+      });
+    } catch (checkoutError) {
+      // Closing the modal does not prove payment failure. Always reconcile
+      // against Cashfree on the server before allowing another attempt.
+      const recovered = await api(
+        `/kiosk/orders/${order._id}/recover`,
+        { headers: { "x-kiosk-order-key": key } }
+      ).catch(() => null);
+
+      if (recovered?.paid || recovered?.order?.paymentStatus === "Paid") {
+        const merged = { ...order, ...recovered.order };
+        setActiveOrder((old) => {
+          if (!old || old.order._id !== order._id) return old;
+          const updated = { ...old, order: { ...old.order, ...merged } };
+          activeOrderRef.current = updated;
+          saveKioskOrder(updated);
+          return updated;
+        });
+        return merged;
+      }
+
+      throw new Error(
+        checkoutError?.message ||
+        "Cashfree checkout closed. Check payment status before retrying."
+      );
+    }
+
+    const verified = await api(
+      `/kiosk/orders/${order._id}/verify`,
       {
         method: "POST",
-
-        headers: {
-          "x-kiosk-order-key": key,
-        },
+        headers: { "x-kiosk-order-key": key },
+        body: JSON.stringify({
+          order_id: session.gatewayOrderId,
+        }),
       }
     );
 
-    return new Promise((resolve, reject) => {
-      let settled = false;
-
-      const rejectOnce = (message) => {
-        if (settled) return;
-
-        settled = true;
-
-        reject(new Error(message));
+    setActiveOrder((old) => {
+      if (!old || old.order._id !== order._id) return old;
+      const updated = {
+        ...old,
+        order: { ...old.order, ...verified.order },
       };
-
-      const checkout = new window.Razorpay({
-        key: payment.keyId,
-
-        amount: payment.amount,
-
-        currency: payment.currency,
-
-        name: "OfficeBite",
-
-        description:
-          `Order ${order.orderNumber}`,
-
-        order_id: payment.gatewayOrderId,
-
-        theme: {
-          color: "#173f35",
-        },
-
-        handler: async (details) => {
-          if (settled) return;
-
-          settled = true;
-
-          try {
-            const verified = await api(
-              `/kiosk/orders/${order._id}/verify`,
-              {
-                method: "POST",
-
-                headers: {
-                  "x-kiosk-order-key": key,
-                },
-
-                body: JSON.stringify(details),
-              }
-            );
-
-            setActiveOrder((old) => {
-              if (
-                !old ||
-                old.order._id !== order._id
-              ) {
-                return old;
-              }
-
-              const updated = {
-                ...old,
-
-                order: {
-                  ...old.order,
-                  ...verified.order,
-                },
-              };
-
-              activeOrderRef.current = updated;
-
-              return updated;
-            });
-
-            resolve(verified.order);
-          } catch (err) {
-            reject(err);
-          }
-        },
-
-        modal: {
-          ondismiss: () =>
-            rejectOnce(
-              "Payment popup closed. Check payment status before retrying."
-            ),
-        },
-      });
-
-      checkout.on(
-        "payment.failed",
-        (event) => {
-          rejectOnce(
-            event.error?.description ||
-              "Payment failed."
-          );
-        }
-      );
-
-      gatewayRef.current = checkout;
-
-      checkout.open();
+      activeOrderRef.current = updated;
+      saveKioskOrder(updated);
+      return updated;
     });
+
+    return verified.order;
+  }
+
+  async function payOnline(order, key) {
+    const session = await api(
+      `/kiosk/orders/${order._id}/pay`,
+      {
+        method: "POST",
+        headers: { "x-kiosk-order-key": key },
+      }
+    );
+
+    return launchCashfreeCheckout(order, key, session);
   }
 
   // ============================================
@@ -2966,11 +2924,11 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
         createdAtMs: Date.now(),
       };
 
-      // Save BEFORE Razorpay opens or the user can press F5.
+      // Save BEFORE Cashfree opens or the user can press F5.
       saveKioskOrder(fresh);
       activeOrderRef.current = fresh;
 
-      setPaymentSeconds(60);
+      setPaymentSeconds(120);
 
       setActiveOrder(fresh);
 
@@ -2979,7 +2937,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
 
       setScreen("status");
 
-      if (selectedMethod === "Online (Razorpay)") {
+      if (selectedMethod === "Online (Cashfree)") {
         try {
           await payOnline(
             result.order,
@@ -3012,61 +2970,106 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
   }
 
   // ============================================
-  // DYNAMIC UPI QR: PROVIDER-VERIFIED, NEVER
-  // MARK PAID SIMPLY BECAUSE THE IMAGE IS SHOWN
+  // COUNTER UPI CASHFREE CHECKOUT SESSION
+  // Cashfree Checkout is used instead of a standalone QR image.
   // ============================================
+
   const createUpiQr = useCallback(async (order, key) => {
     if (!qrEnabled) return;
+
     try {
-      const response = await api(`/kiosk/orders/${order._id}/upi-qr`, {
-        method: "POST",
-        headers: { "x-kiosk-order-key": key },
+      const response = await api(
+        `/kiosk/orders/${order._id}/upi-qr`,
+        {
+          method: "POST",
+          headers: { "x-kiosk-order-key": key },
+        }
+      );
+
+      if (!response.paymentSessionId || !response.gatewayOrderId) {
+        throw new Error("Cashfree did not return a valid UPI checkout session.");
+      }
+
+      setUpiQr({
+        paymentSessionId: response.paymentSessionId,
+        gatewayOrderId: response.gatewayOrderId,
+        environment: response.environment,
+        amount: response.orderAmount,
       });
-      if (!/^https:\/\//.test(response.imageUrl || "")) throw new Error("Invalid payment QR URL.");
-      setUpiQr({imageUrl: response.imageUrl, closeBy: response.closeBy});
-      setActiveOrder(current => {
-        if (current?.order?._id !== order._id) return current;
-        const updated = { ...current, qrCloseBy: response.closeBy };
-        activeOrderRef.current = updated;
-        saveKioskOrder(updated);
-        return updated;
-      });
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      setError(err.message);
+    }
   }, [qrEnabled]);
 
   useEffect(() => {
-    if (screen !== "status" || !activeOrder || !qrEnabled ||
-      activeOrder.method !== "Counter UPI" || paid(activeOrder.order)) return;
-    if (upiQr?.imageUrl) return;
-    void createUpiQr(activeOrder.order, activeOrder.key);
-  }, [screen, activeOrder?.order?._id, activeOrder?.order?.paymentStatus, activeOrder?.method, activeOrder?.qrCloseBy, activeOrder?.key, qrEnabled, upiQr?.imageUrl, createUpiQr]);
+    if (
+      screen !== "status" ||
+      !activeOrder ||
+      !qrEnabled ||
+      activeOrder.method !== "Counter UPI" ||
+      paid(activeOrder.order)
+    ) return;
 
-  // Recover QR capture every 12s; public tracking polling has no access
-  // to provider payment details, so signed order key is required.
+    if (upiQr?.paymentSessionId) return;
+    void createUpiQr(activeOrder.order, activeOrder.key);
+  }, [
+    screen,
+    activeOrder?.order?._id,
+    activeOrder?.order?.paymentStatus,
+    activeOrder?.method,
+    activeOrder?.key,
+    qrEnabled,
+    upiQr?.paymentSessionId,
+    createUpiQr,
+  ]);
+
+  // Keep checking server-side payment status while Cashfree checkout is open
+  // or after the customer returns to the kiosk.
   useEffect(() => {
-    if (screen !== "status" || !qrEnabled || !activeOrder ||
-      activeOrder.method !== "Counter UPI" || paid(activeOrder.order)) return;
+    if (
+      screen !== "status" ||
+      !qrEnabled ||
+      !activeOrder ||
+      activeOrder.method !== "Counter UPI" ||
+      paid(activeOrder.order)
+    ) return;
+
     const check = async () => {
       const current = activeOrderRef.current;
-      if (!current || current.order.paymentStatus === "Paid") return;
+      if (!current || paid(current.order)) return;
+
       try {
-        const response = await api(`/kiosk/orders/${current.order._id}/recover`, {
-          headers:{"x-kiosk-order-key":current.key},
-        });
+        const response = await api(
+          `/kiosk/orders/${current.order._id}/recover`,
+          { headers: { "x-kiosk-order-key": current.key } }
+        );
+
         if (response?.order?.paymentStatus === "Paid") {
-          setActiveOrder(old => {
+          setActiveOrder((old) => {
             if (!old || old.order._id !== current.order._id) return old;
-            const updated={...old,order:{...old.order,...response.order}};
-            activeOrderRef.current=updated;
+            const updated = {
+              ...old,
+              order: { ...old.order, ...response.order },
+            };
+            activeOrderRef.current = updated;
             saveKioskOrder(updated);
             return updated;
           });
         }
-      } catch { /* Retain current order on network/provider error. */ }
+      } catch {
+        // Keep the pending order visible; retry on the next interval.
+      }
     };
-    const timer=setInterval(check,12000);
-    return ()=>clearInterval(timer);
-  }, [screen,qrEnabled,activeOrder?.order?._id,activeOrder?.method,activeOrder?.order?.paymentStatus]);
+
+    const timer = setInterval(check, 10000);
+    return () => clearInterval(timer);
+  }, [
+    screen,
+    qrEnabled,
+    activeOrder?.order?._id,
+    activeOrder?.method,
+    activeOrder?.order?.paymentStatus,
+  ]);
 
   // ============================================
   // RETRY ONLINE PAYMENT
@@ -3192,7 +3195,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
     ...(onlineEnabled
       ? [
           {
-            value: "Online (Razorpay)",
+            value: "Online (Cashfree)",
             label: "Pay online",
             description:
               "UPI, cards and net banking",
@@ -3203,17 +3206,17 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
 
     {
       value: "Counter Cash",
-      label: "Cash at counter",
+      label: "Cash on Counter",
       description: "Pay our cashier",
       icon: Wallet,
     },
 
     {
       value: "Counter UPI",
-      label: qrEnabled ? "Scan UPI QR" : "UPI",
+      label: qrEnabled ? "Pay by UPI" : "UPI",
       description: qrEnabled
-        ? "Generate an order-specific UPI QR after placing your order"
-        : "QR unavailable; cashier verifies counter UPI payment",
+        ? "Open secure Cashfree checkout and choose UPI"
+        : "Cashfree UPI checkout is unavailable; cashier verifies payment",
       icon: QrCode,
     },
   ];
@@ -3823,8 +3826,8 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                 <div className="cafe-hint" role="status">
                   <QrCode size={18} />
                   {qrEnabled
-                    ? "Selecting UPI creates your pending order and shows its QR immediately. Seat selection unlocks after verified payment."
-                    : "Dynamic Scan UPI QR is unavailable. Counter UPI requires manual cashier verification; you can also choose online payment if enabled."}
+                    ? "Selecting UPI creates your order. Open Cashfree Checkout and choose a UPI app or UPI ID. Seat selection unlocks after verified payment."
+                    : "Cashfree UPI checkout is unavailable. Please pay at the counter for manual verification."}
                 </div>
               )}
 
@@ -3853,7 +3856,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                 className="cafe-cancel-payment"
                 disabled={busy}
                 onClick={() => {
-                  setMethod(onlineEnabled ? "Online (Razorpay)" : "Counter Cash");
+                  setMethod(onlineEnabled ? "Online (Cashfree)" : "Counter Cash");
                   setScreen("menu");
                 }}
               >
@@ -4016,36 +4019,48 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                   </div>
                 )}
 
-                {!paid(activeOrder?.order) && qrEnabled && activeOrder?.method === "Counter UPI" && !upiQr?.imageUrl && (
+                {!paid(activeOrder?.order) && qrEnabled && activeOrder?.method === "Counter UPI" && !upiQr?.paymentSessionId && (
                   <div className="cafe-hint" role="status" style={{display:"flex",flexDirection:"column",gap:10,alignItems:"center"}}>
                     <QrCode size={24} aria-hidden="true" />
-                    <span>Generating your secure UPI QR. If it does not appear, retry.</span>
+                    <span>Preparing your secure Cashfree UPI checkout...</span>
                     <button
                       type="button"
                       className="cafe-secondary"
+                      disabled={busy}
                       onClick={() => void createUpiQr(activeOrder.order, activeOrder.key)}
                     >
-                      <RefreshCw size={17} /> Retry QR generation
+                      <RefreshCw size={17} /> Retry checkout setup
                     </button>
                   </div>
                 )}
 
-                {!paid(activeOrder.order) && upiQr?.imageUrl && activeOrder?.method === "Counter UPI" && (
-                  <div className="cafe-hint cafe-qr-payment" role="region" aria-label="Scan to pay using UPI">
-                    <strong>Scan &amp; Pay</strong>
-                    <div className="cafe-qr-only">
-                      <img
-                        src={upiQr.imageUrl}
-                        alt="Scan this UPI QR code to pay for your OfficeBite order"
-                      />
-                    </div>
-                    <small>Payment confirm hone ke baad apni seat select karein.</small>
-                    <details className="cafe-qr-fallback">
-                      <summary>QR scan nahi ho raha?</summary>
-                      <a href={upiQr.imageUrl} target="_blank" rel="noopener noreferrer">
-                        Original QR kholein
-                      </a>
-                    </details>
+                {!paid(activeOrder.order) && upiQr?.paymentSessionId && activeOrder?.method === "Counter UPI" && (
+                  <div className="cafe-hint cafe-qr-payment" role="region" aria-label="Cashfree UPI payment">
+                    <QrCode size={34} aria-hidden="true" />
+                    <strong>Pay securely using UPI</strong>
+                    <small>Cashfree Checkout mein UPI app ya UPI ID select karein. Payment server se verify hone ke baad seat selection unlock hogi.</small>
+                    <button
+                      type="button"
+                      className="cafe-primary cafe-full"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError("");
+                        try {
+                          await launchCashfreeCheckout(
+                            activeOrder.order,
+                            activeOrder.key,
+                            upiQr
+                          );
+                        } catch (err) {
+                          setError(err.message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      <QrCode size={18} /> Open Cashfree UPI Checkout
+                    </button>
                   </div>
                 )}
 
@@ -4054,17 +4069,17 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                     <ShieldCheck size={19} />
 
                     {activeOrder.method ===
-                    "Online (Razorpay)"
+                    "Online (Cashfree)"
                       ? "Complete your secure online payment before the timer ends."
                       : activeOrder.method === "Counter UPI" && qrEnabled
-                      ? "Scan the UPI QR above. Your seat unlocks only when the server confirms payment."
+                      ? "Complete UPI payment in Cashfree Checkout. Your seat unlocks only when the server confirms payment."
                       : "Please pay at the counter. Admin will verify the payment."}
                   </div>
                 )}
 
                 {!paid(activeOrder.order) &&
                   activeOrder.method ===
-                    "Online (Razorpay)" && (
+                    "Online (Cashfree)" && (
                     <button
                       className="cafe-secondary cafe-full"
                       disabled={busy}
