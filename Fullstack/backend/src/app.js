@@ -25,7 +25,7 @@ app.disable("x-powered-by");
 
 const allowedOrigins = (
   process.env.FRONTEND_ORIGIN ||
-  "http://localhost:5173,http://127.0.0.1:5173"
+  "http://localhost:5173,http://146.101.46.205:5006"
 )
   .split(",")
   .map((origin) =>
