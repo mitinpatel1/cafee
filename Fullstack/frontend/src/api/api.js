@@ -1,5 +1,18 @@
 
-const API_BASE = "/api";
+// =====================================================
+// API CONFIGURATION
+// =====================================================
+
+const rawBackendUrl = String(import.meta.env.VITE_API_URL || "").trim();
+const cleanBackendUrl = (
+  rawBackendUrl.includes(",")
+    ? rawBackendUrl.split(",")[0].trim()
+    : rawBackendUrl
+).replace(/\/+$/, "");
+
+export const API_BASE = cleanBackendUrl
+  ? `${cleanBackendUrl}/api`
+  : "/api";
 
 // =====================================================
 // AUTHENTICATION HELPERS
@@ -7,6 +20,7 @@ const API_BASE = "/api";
 
 const getToken = () => {
   const path = window.location.pathname;
+
   const storageKey =
     path === "/admin" || path.startsWith("/admin/")
       ? "officebite_token_admin"
@@ -17,8 +31,9 @@ const getToken = () => {
   return localStorage.getItem(storageKey);
 };
 
-const getAuthHeaders = (explicitToken) => {
+export const getAuthHeaders = (explicitToken) => {
   const token = explicitToken ?? getToken();
+
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -27,17 +42,21 @@ const getAuthHeaders = (explicitToken) => {
 
 const getUploadHeaders = () => {
   const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+
+  return token
+    ? { Authorization: `Bearer ${token}` }
+    : {};
 };
 
 // =====================================================
 // RESPONSE HANDLER
 // =====================================================
 
-const handleResponse = async (response) => {
+export const handleResponse = async (response) => {
   let data;
 
-  const contentType = response.headers.get("content-type") || "";
+  const contentType =
+    response.headers.get("content-type") || "";
 
   if (contentType.includes("application/json")) {
     try {
@@ -65,7 +84,9 @@ const handleResponse = async (response) => {
         data?.error ||
         `Request failed (${response.status}).`
     );
+
     error.status = response.status;
+
     throw error;
   }
 
@@ -118,29 +139,51 @@ export const api = {
   },
 
   requestPasswordReset: async ({ email, portal }) => {
-    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, portal }),
-    });
+    const res = await fetch(
+      `${API_BASE}/auth/forgot-password`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, portal }),
+      }
+    );
+
     return handleResponse(res);
   },
 
   verifyPasswordResetOtp: async ({ email, portal, otp }) => {
-    const res = await fetch(`${API_BASE}/auth/verify-reset-otp`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, portal, otp }),
-    });
+    const res = await fetch(
+      `${API_BASE}/auth/verify-reset-otp`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, portal, otp }),
+      }
+    );
+
     return handleResponse(res);
   },
 
-  resetPassword: async ({ email, portal, resetToken, newPassword }) => {
-    const res = await fetch(`${API_BASE}/auth/reset-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, portal, resetToken, newPassword }),
-    });
+  resetPassword: async ({
+    email,
+    portal,
+    resetToken,
+    newPassword,
+  }) => {
+    const res = await fetch(
+      `${API_BASE}/auth/reset-password`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          portal,
+          resetToken,
+          newPassword,
+        }),
+      }
+    );
+
     return handleResponse(res);
   },
 
@@ -389,39 +432,38 @@ export const api = {
     return handleResponse(res);
   },
 
- 
-collectCounterPayment: async (id, reference = "") => {
-  const token = getToken();
+  collectCounterPayment: async (id, reference = "") => {
+    const token = getToken();
 
-  const response = await fetch(
-    `${API_BASE}/orders/admin/${id}/counter-payment`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token
-          ? { Authorization: `Bearer ${token}` }
-          : {}),
-      },
-      body: JSON.stringify({
-        reference: String(reference).trim(),
-      }),
-    }
-  );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    console.error("Counter payment failed:", data);
-
-    throw new Error(
-      data.message || "Unable to confirm counter payment."
+    const response = await fetch(
+      `${API_BASE}/orders/admin/${id}/counter-payment`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token
+            ? { Authorization: `Bearer ${token}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          reference: String(reference).trim(),
+        }),
+      }
     );
-  }
 
-  return data;
-},
+    const data = await response.json().catch(() => ({}));
 
+    if (!response.ok) {
+      console.error("Counter payment failed:", data);
+
+      throw new Error(
+        data.message ||
+          "Unable to confirm counter payment."
+      );
+    }
+
+    return data;
+  },
 
   // ===================================================
   // 7. INVENTORY MANAGEMENT
@@ -503,10 +545,7 @@ collectCounterPayment: async (id, reference = "") => {
     return handleResponse(res);
   },
 
-  initiatePayment: async (
-    orderId,
-    paymentMethod
-  ) => {
+  initiatePayment: async (orderId, paymentMethod) => {
     const res = await fetch(
       `${API_BASE}/payments/initiate`,
       {
@@ -594,10 +633,7 @@ collectCounterPayment: async (id, reference = "") => {
     return handleResponse(res);
   },
 
-  updateFranchiseOrderStatus: async (
-    id,
-    status
-  ) => {
+  updateFranchiseOrderStatus: async (id, status) => {
     const res = await fetch(
       `${API_BASE}/franchise/orders/${id}/status`,
       {
@@ -633,13 +669,58 @@ collectCounterPayment: async (id, reference = "") => {
     return handleResponse(res);
   },
 
-  // Franchise-only scoped stock and outlet settings. Existing admin APIs stay unchanged.
-  getMyFranchiseMenu: async (franchiseId) => handleResponse(await fetch(`${API_BASE}/franchise/menu${buildQuery({franchiseId})}`, {headers:getAuthHeaders()})),
-  getFranchiseInventory: async (franchiseId) => handleResponse(await fetch(`${API_BASE}/franchise/inventory${buildQuery({franchiseId})}`, {headers: getAuthHeaders()})),
-  createFranchiseIngredient: async (payload) => handleResponse(await fetch(`${API_BASE}/franchise/inventory`, {method:'POST', headers:getAuthHeaders(),body:JSON.stringify(payload)})),
-  updateFranchiseIngredient: async (id, payload) => handleResponse(await fetch(`${API_BASE}/franchise/inventory/${id}`, {method:'PATCH',headers:getAuthHeaders(),body:JSON.stringify(payload)})),
-  deleteFranchiseIngredient: async (id) => handleResponse(await fetch(`${API_BASE}/franchise/inventory/${id}`, {method:'DELETE',headers:getAuthHeaders()})),
-  updateMyFranchise: async (id, payload) => handleResponse(await fetch(`${API_BASE}/franchise/me/${id}`, {method:'PATCH',headers:getAuthHeaders(),body:JSON.stringify(payload)})),
+  // Franchise-only scoped stock and outlet settings
+
+  getMyFranchiseMenu: async (franchiseId) =>
+    handleResponse(
+      await fetch(
+        `${API_BASE}/franchise/menu${buildQuery({ franchiseId })}`,
+        { headers: getAuthHeaders() }
+      )
+    ),
+
+  getFranchiseInventory: async (franchiseId) =>
+    handleResponse(
+      await fetch(
+        `${API_BASE}/franchise/inventory${buildQuery({ franchiseId })}`,
+        { headers: getAuthHeaders() }
+      )
+    ),
+
+  createFranchiseIngredient: async (payload) =>
+    handleResponse(
+      await fetch(`${API_BASE}/franchise/inventory`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      })
+    ),
+
+  updateFranchiseIngredient: async (id, payload) =>
+    handleResponse(
+      await fetch(`${API_BASE}/franchise/inventory/${id}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      })
+    ),
+
+  deleteFranchiseIngredient: async (id) =>
+    handleResponse(
+      await fetch(`${API_BASE}/franchise/inventory/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      })
+    ),
+
+  updateMyFranchise: async (id, payload) =>
+    handleResponse(
+      await fetch(`${API_BASE}/franchise/me/${id}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      })
+    ),
 
   // ===================================================
   // 12. FRANCHISE ADMIN MANAGEMENT
@@ -694,10 +775,7 @@ collectCounterPayment: async (id, reference = "") => {
     return handleResponse(res);
   },
 
-  updateFranchiseStatus: async (
-    id,
-    status
-  ) => {
+  updateFranchiseStatus: async (id, status) => {
     const res = await fetch(
       `${API_BASE}/franchise/${id}/status`,
       {
@@ -709,11 +787,4 @@ collectCounterPayment: async (id, reference = "") => {
 
     return handleResponse(res);
   },
-};
-
-// Optional named exports
-export {
-  API_BASE,
-  getAuthHeaders,
-  handleResponse,
 };

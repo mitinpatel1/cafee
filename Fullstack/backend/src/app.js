@@ -25,7 +25,7 @@ app.disable("x-powered-by");
 
 const allowedOrigins = (
   process.env.FRONTEND_ORIGIN ||
-  "http://localhost:5173,http://146.101.46.205:5006"
+  "http://localhost:5173,http://127.0.0.1:5173,http://146.101.46.205:5006,http://146.101.46.205:5173"
 )
   .split(",")
   .map((origin) =>
@@ -33,12 +33,33 @@ const allowedOrigins = (
   )
   .filter(Boolean);
 
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  const normalized = origin.trim().replace(/\/$/, "");
+  if (allowedOrigins.includes(normalized)) return true;
+
+  try {
+    const url = new URL(normalized);
+    if (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "0.0.0.0" ||
+      url.hostname.startsWith("192.168.") ||
+      url.hostname.startsWith("10.") ||
+      url.hostname.startsWith("172.")
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 const corsOptions = {
   origin(origin, callback) {
-    if (
-      !origin ||
-      allowedOrigins.includes(origin)
-    ) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
 

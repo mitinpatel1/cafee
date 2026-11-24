@@ -39,7 +39,7 @@ const SOCKET_PATH = "/socket.io";
 
 const allowedOrigins = (
   process.env.FRONTEND_ORIGIN ||
-  "http://localhost:5173,http://146.101.46.205:5006"
+  "http://localhost:5173,http://127.0.0.1:5173,http://146.101.46.205:5006,http://146.101.46.205:5173"
 )
   .split(",")
   .map((origin) =>
@@ -79,7 +79,7 @@ const io = new Server(server, {
 
   cors: {
     ...corsOptions,
-    origin: allowedOrigins,
+    origin: corsOptions.origin,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -236,10 +236,7 @@ async function start() {
     // Step 2: MongoDB connection
     await initializeDatabase();
 
-    // Step 3: Default menu
-    await initializeMenu();
-
-    // Step 4: Start HTTP and Socket.IO
+    // Step 3: Start HTTP and Socket.IO immediately so port is open without delay
     await new Promise((resolve, reject) => {
       const onError = (error) => {
         server.off("listening", onListening);
@@ -258,6 +255,11 @@ async function start() {
     });
 
     started = true;
+
+    // Step 4: Initialize daily menu in background
+    initializeMenu().catch((err) => {
+      console.error("Menu initialization error:", err.message);
+    });
 
     console.log("");
     console.log("====================================");
