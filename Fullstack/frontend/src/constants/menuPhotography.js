@@ -1,16 +1,18 @@
+import { publicUrl } from '../config/basePath';
+
 // Photographs extracted from the UI reference screenshot supplied by the user.
 // These replace only the original generic *seed* photo URLs for matching dishes.
 // A franchise owner's custom image always takes priority.
 const screenshotPhotos = {
-  'idli sambar': '/menu-reference/idli-sambar.webp',
-  'masala dosa': '/menu-reference/masala-dosa.webp',
-  'veg fried rice': '/menu-reference/veg-fried-rice.webp',
-  'paneer butter masala': '/menu-reference/paneer-butter-masala.webp',
-  'grilled veg sandwich': '/menu-reference/veg-sandwich.webp',
-  'veg sandwich': '/menu-reference/veg-sandwich.webp',
-  'french fries': '/menu-reference/french-fries.webp',
-  'iced tea': '/menu-reference/iced-tea.webp',
-  'chocolate brownie': '/menu-reference/chocolate-brownie.webp',
+  'idli sambar': publicUrl('menu-reference/idli-sambar.webp'),
+  'masala dosa': publicUrl('menu-reference/masala-dosa.webp'),
+  'veg fried rice': publicUrl('menu-reference/veg-fried-rice.webp'),
+  'paneer butter masala': publicUrl('menu-reference/paneer-butter-masala.webp'),
+  'grilled veg sandwich': publicUrl('menu-reference/veg-sandwich.webp'),
+  'veg sandwich': publicUrl('menu-reference/veg-sandwich.webp'),
+  'french fries': publicUrl('menu-reference/french-fries.webp'),
+  'iced tea': publicUrl('menu-reference/iced-tea.webp'),
+  'chocolate brownie': publicUrl('menu-reference/chocolate-brownie.webp'),
 };
 
 const originalSeedPhotoIds = [
@@ -37,4 +39,4 @@ export function menuPhoto(item) {
   return originalImage;
 }
 
-export const MENU_BANNER_IMAGE = '/menu-reference/menu-banner.webp';
+export const MENU_BANNER_IMAGE = publicUrl('menu-reference/menu-banner.webp');

@@ -11,6 +11,7 @@ import React, {
 
 import { io } from "socket.io-client";
 import { useAuth } from "./AuthContext";
+import { APP_BASE } from "../config/basePath";
 
 // ================================================
 // CONFIGURATION
@@ -19,7 +20,7 @@ import { useAuth } from "./AuthContext";
 const SocketContext = createContext(null);
 
 const SOCKET_URL = window.location.origin;
-const SOCKET_PATH = "/socket.io";
+const SOCKET_PATH = `${APP_BASE}/socket.io`;
 
 const MAX_NOTIFICATIONS = 20;
 const ALERT_DURATION = 8000;

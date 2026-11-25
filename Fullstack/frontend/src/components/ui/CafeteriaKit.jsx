@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Search, ShoppingBag } from 'lucide-react';
 import { PortalBadge, portalMoney } from './PortalPieces';
 import { menuPhoto } from '../../constants/menuPhotography';
+import { publicUrl } from '../../config/basePath';
 
 export const PageHead = ({title, subtitle, action, children}) => <div className="cf-page-head"><div><h1>{title}</h1><p>{subtitle}</p></div><div className="cf-head-actions">{children}{action}</div></div>;
 export const Metric = ({ label, value, icon: Icon, sub, tint='orange' }) => <div className="cf-stat"><span className={`cf-stat-icon ${tint}`}><Icon size={21}/></span><span className="cf-stat-label">{label}</span><strong>{value}</strong><small>{sub}</small></div>;
 export const DataTable = ({ headers, children, empty, loading }) => <div className="cf-table-scroll"><table className="cf-table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{children}</tbody></table>{loading ? <p className="cf-no-results">Loading data…</p> : empty ? <p className="cf-no-results">{empty}</p> : null}</div>;
 export const Tabs = ({ items, value, onChange }) => <div className="cf-tabs" role="group" aria-label="Filter items">{items.map(item=><button type="button" className={value===item?'active':''} key={item} onClick={()=>onChange(item)} aria-pressed={value===item}>{item}</button>)}</div>;
 export const SearchField = ({value, onChange, placeholder='Search...'}) => <label className="cf-search"><Search size={17}/><input placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)}/></label>;
-export const FoodTile = ({item, controls}) => <article className="cf-food-tile"><div className="cf-food-photo"><img src={menuPhoto(item) || '/menu-reference/veg-fried-rice.webp'} alt={item.name} loading="lazy"/><span className="cf-category-tag">{item.category}</span></div><div className="cf-food-body"><h3>{item.name}</h3><p>{item.description||'Freshly prepared at your cafeteria'}</p><strong>{portalMoney(item.price)}</strong>{controls && <div className="cf-food-controls">{controls}</div>}</div></article>;
+export const FoodTile = ({item, controls}) => <article className="cf-food-tile"><div className="cf-food-photo"><img src={menuPhoto(item) || publicUrl('menu-reference/veg-fried-rice.webp')} alt={item.name} loading="lazy"/><span className="cf-category-tag">{item.category}</span></div><div className="cf-food-body"><h3>{item.name}</h3><p>{item.description||'Freshly prepared at your cafeteria'}</p><strong>{portalMoney(item.price)}</strong>{controls && <div className="cf-food-controls">{controls}</div>}</div></article>;
 export const TrendChart = ({ data=[], mode='revenue' }) => {
   const cleaned = data.length ? data : [];
   const max = Math.max(1,...cleaned.map(d=>Number(d[mode]||0)));
@@ -20,7 +21,7 @@ export const TrendChart = ({ data=[], mode='revenue' }) => {
 export const Section = ({ title, subtitle, action, children, className='' }) => <section className={`cf-panel ${className}`}><div className="cf-panel-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>{children}</section>;
 export const SoftLink = ({to,children}) => <Link to={to} className="cf-soft-link">{children}<ArrowRight size={15}/></Link>;
 export const Status = ({status}) => <PortalBadge status={status}/>;
-export const FoodThumb = ({item}) => <img className="cf-food-thumb" src={menuPhoto(item) || '/menu-reference/veg-fried-rice.webp'} alt="" loading="lazy" />;
+export const FoodThumb = ({item}) => <img className="cf-food-thumb" src={menuPhoto(item) || publicUrl('menu-reference/veg-fried-rice.webp')} alt="" loading="lazy" />;
 export const orderItemsText = order => (order.items||[]).map(i=>`${i.quantity||1}× ${i.name}`).join(', ') || '—';
 export const orderName = order => order.userId?.name || 'Customer';
 export const orderId = order => `#${order.orderNumber||String(order._id||'').slice(-6)}`;

@@ -3,6 +3,8 @@
 // API CONFIGURATION
 // =====================================================
 
+import { APP_BASE, currentAppPath } from "../config/basePath";
+
 const rawBackendUrl = String(import.meta.env.VITE_API_URL || "").trim();
 const cleanBackendUrl = (
   rawBackendUrl.includes(",")
@@ -12,14 +14,14 @@ const cleanBackendUrl = (
 
 export const API_BASE = cleanBackendUrl
   ? `${cleanBackendUrl}/api`
-  : "/api";
+  : `${APP_BASE}/api`;
 
 // =====================================================
 // AUTHENTICATION HELPERS
 // =====================================================
 
 const getToken = () => {
-  const path = window.location.pathname;
+  const path = currentAppPath();
 
   const storageKey =
     path === "/admin" || path.startsWith("/admin/")

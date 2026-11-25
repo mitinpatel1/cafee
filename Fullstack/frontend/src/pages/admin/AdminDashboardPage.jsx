@@ -8,7 +8,7 @@ import React, {
 
 import { useSearchParams } from "react-router-dom";
 
-import { api } from "../../api/api";
+import { api, API_BASE } from "../../api/api";
 
 import {
   useSocket,
@@ -118,7 +118,7 @@ async function adminRequest(path, options = {}) {
   }
 
   const response = await fetch(
-    `/api/orders${path}`,
+    `${API_BASE}/orders${path}`,
     {
       cache: "no-store",
       ...options,

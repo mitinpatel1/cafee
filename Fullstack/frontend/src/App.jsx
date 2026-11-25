@@ -14,6 +14,8 @@ import {
 
 import { AuthProvider } from "./context/AuthContext";
 
+import { APP_BASE } from "./config/basePath";
+
 import { CartProvider } from "./context/CartContext";
 
 import { FranchiseSelectionProvider } from "./context/FranchiseSelectionContext";
@@ -86,7 +88,7 @@ import { FranchiseSettingsPage } from "./pages/franchise/FranchiseSettingsPage";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={APP_BASE}>
       <AuthProvider>
         <CartProvider>
           <FranchiseSelectionProvider>

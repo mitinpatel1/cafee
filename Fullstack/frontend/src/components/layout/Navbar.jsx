@@ -22,6 +22,7 @@ import {
   ArrowUpRight,
   ChevronDown,
 } from "lucide-react";
+import { uploadUrl } from "../../config/basePath";
 
 export const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -43,7 +44,7 @@ export const Navbar = () => {
     .charAt(0)
     .toUpperCase();
 
-  const avatarUrl = user?.avatar || "";
+  const avatarUrl = uploadUrl(user?.avatar || "");
 
   // ============================================
   // CLOSE MENUS ON ROUTE CHANGE

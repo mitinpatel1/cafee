@@ -30,6 +30,10 @@ import {
   X,
 } from "lucide-react";
 
+import { API_BASE } from "../../api/api";
+
+import { APP_BASE } from "../../config/basePath";
+
 // ============================================
 // OFFICEBITE STYLING
 // CSS IS INSIDE THIS JSX FILE
@@ -1890,7 +1894,7 @@ function categoryEmoji(name = "") {
 // ============================================
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
     ...options,
 
@@ -4566,7 +4570,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
       <footer className="cafe-footer">
         © OfficeBite · Fresh food,
         happy moments
-        {screen === "menu" && <span> · <a href="/order-status" style={{color:"#173f35"}}>Track an order</a> · <a href="/feedback" style={{color:"#173f35"}}>Feedback</a></span>}
+        {screen === "menu" && <span> · <a href={`${APP_BASE}/order-status`} style={{color:"#173f35"}}>Track an order</a> · <a href={`${APP_BASE}/feedback`} style={{color:"#173f35"}}>Feedback</a></span>}
       </footer>
     </div>
   );

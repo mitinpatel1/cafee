@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
+import { uploadUrl } from "../../config/basePath";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
 
@@ -165,7 +166,7 @@ export const ProfilePage = () => {
 <div className="ob-profile-photo-frame">
   {user?.avatar ? (
     <img
-      src={user.avatar}
+      src={uploadUrl(user.avatar)}
       alt="Your profile"
       className="ob-profile-photo-image"
     />

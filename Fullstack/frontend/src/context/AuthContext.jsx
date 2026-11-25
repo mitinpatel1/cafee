@@ -8,6 +8,7 @@ import React, {
 
 import { useLocation } from "react-router-dom";
 import { api } from "../api/api";
+import { currentAppPath } from "../config/basePath";
 
 const AuthContext = createContext(null);
 
@@ -52,7 +53,7 @@ export const AuthProvider = ({ children }) => {
 
   const [session, setSession] = useState(() => {
     const initialPortal = getPortal(
-      window.location.pathname
+      currentAppPath()
     );
 
     return {

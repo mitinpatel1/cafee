@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { NotificationToast } from '../ui/NotificationToast';
 import '../../styles/customer-dashboard.css';
+import { uploadUrl } from '../../config/basePath';
 
 const links = [
   { to: '/menu', label: 'Menu', icon: Home },
@@ -23,7 +24,7 @@ function CustomerAvatar({ user, size = 'normal' }) {
   return (
     <span className={`caf-user-avatar ${size === 'small' ? 'caf-user-avatar--sm' : ''}`}>
       {user?.avatar && !failed ? (
-        <img src={user.avatar} alt="" onError={() => setFailed(true)} />
+        <img src={uploadUrl(user.avatar)} alt="" onError={() => setFailed(true)} />
       ) : user?.name ? (
         <span>{user.name.charAt(0).toUpperCase()}</span>
       ) : (
