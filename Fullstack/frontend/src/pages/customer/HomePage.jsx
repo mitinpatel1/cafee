@@ -73,7 +73,7 @@ export const HomePage = () => {
         <div className="section-intro"><div><p className="section-kicker">EXPLORE THE GOOD STUFF</p><h2 id="categories-heading">Whatever you're <em>craving.</em></h2></div><Link to="/menu" className="text-arrow">View entire menu <ArrowUpRight size={17}/></Link></div>
         <div className="editorial-categories">{categoryLinks.map(cat => <Link to={`/menu?category=${encodeURIComponent(cat.label)}`} className="editorial-category" key={cat.label}><span>{cat.icon}</span><div><strong>{cat.label}</strong><small>{cat.caption}</small></div><ChevronRight size={19}/></Link>)}</div>
       </section>
-      <section className="editorial-feature" aria-label="How OfficeBite works">
+      <section className="editorial-feature" aria-label="How TorchXBite works">
         <div className="feature-photo"><img src={PHOTOS.kitchen} alt="Restaurant chef preparing meals in a working kitchen" loading="lazy"/></div>
         <div className="feature-copy"><p className="section-kicker">GOOD FOOD, NO FUSS</p><h2>Real kitchens.<br/>Real flavour.</h2><p>See what's available from real locations. Choose the food you love, confirm your pickup, and spend more of your break enjoying it.</p><div className="feature-steps"><span><Utensils size={18}/> Browse real dishes</span><span><MapPin size={18}/> Choose a location</span><span><ShieldCheck size={18}/> Follow your order</span></div><Link to="/menu" className="btn-editorial">Find your next favourite <ArrowUpRight size={17}/></Link></div>
       </section>

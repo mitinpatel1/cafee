@@ -227,7 +227,7 @@ async function start() {
   try {
     console.log("");
     console.log("====================================");
-    console.log("       OFFICEBITE BACKEND");
+    console.log("       TORCHXBITE BACKEND");
     console.log("====================================");
 
     // Step 1: Validate environment
@@ -263,7 +263,7 @@ async function start() {
 
     console.log("");
     console.log("====================================");
-    console.log(" OFFICEBITE SERVER RUNNING");
+    console.log(" TORCHXBITE SERVER RUNNING");
     console.log("====================================");
 
     console.log(

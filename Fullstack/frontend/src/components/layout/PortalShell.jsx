@@ -53,7 +53,7 @@ export const PortalShell = ({ role }) => {
       <aside className={`ob-side ${open ? 'ob-side-open' : ''}`} aria-label={`${role} navigation`}>
         <Link to={isAdmin ? '/admin/dashboard' : '/franchise/dashboard'} className="ob-portal-brand" onClick={() => setOpen(false)}>
           <span className="ob-portal-brand-icon"><UtensilsCrossed size={28} strokeWidth={1.9} /></span>
-          <strong>Office Cafeteria</strong>
+          <strong>TorchXBite</strong>
           <small>Good Food <span>•</span> Better Mood</small>
           <span className="ob-portal-role">{isAdmin ? 'ADMIN PORTAL' : 'FRANCHISE PORTAL'}</span>
         </Link>

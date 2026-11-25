@@ -59,7 +59,7 @@ export const FranchiseSidebar = () => {
           </div>
           <div>
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: '800', fontSize: '1.15rem', color: '#ffffff', letterSpacing: '-0.02em' }}>
-              Office<span style={{ color: '#f3b4c3' }}>Bite</span>
+              TorchX<span style={{ color: '#f3b4c3' }}>Bite</span>
             </div>
             <div style={{ fontSize: '0.7rem', color: '#f3b4c3', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Franchise Portal

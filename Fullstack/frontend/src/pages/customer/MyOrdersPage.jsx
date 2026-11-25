@@ -603,7 +603,7 @@ export const MyOrdersPage = ({ historyOnly = false }) => {
 
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
               <div style={{ fontWeight: '800', fontSize: '1.35rem', color: '#3c0921' }}>
-                Office<span style={{ color: '#b32638' }}>Bite</span> Cafeteria
+                TorchX<span style={{ color: '#b32638' }}>Bite</span> Cafeteria
               </div>
               <div style={{ fontSize: '0.8rem', color: '#6b635c' }}>
                 Official Corporate Meal Voucher

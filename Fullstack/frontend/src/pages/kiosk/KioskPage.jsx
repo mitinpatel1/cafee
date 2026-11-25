@@ -3243,9 +3243,9 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
             </span>
 
             <span>
-              office
+              TorchX
               <span className="cafe-orange">
-                bite.
+                Bite.
               </span>
 
               <small>
@@ -3726,7 +3726,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
 
               <p className="cafe-menu-footnote">
                 {currentFranchise?.name ||
-                  "OfficeBite"}
+                  "TorchXBite"}
 
                 {" · "}
                 Freshly made · No extra tax
@@ -4564,7 +4564,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
       {/* FOOTER */}
 
       <footer className="cafe-footer">
-        © OfficeBite · Fresh food,
+        © TorchXBite · Fresh food,
         happy moments
         {screen === "menu" && <span> · <a href="/order-status" style={{color:"#173f35"}}>Track an order</a> · <a href="/feedback" style={{color:"#173f35"}}>Feedback</a></span>}
       </footer>
