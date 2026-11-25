@@ -719,7 +719,7 @@ export const OrderTrackingPage = () => {
 
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
               <div style={{ fontWeight: '800', fontSize: '1.35rem', color: '#18181b' }}>
-                Office<span style={{ color: '#b32638' }}>Bite</span> Cafeteria
+                TorchX<span style={{ color: '#b32638' }}>Bite</span> Cafeteria
               </div>
               <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Official Corporate Meal Voucher</div>
               <div style={{ marginTop: '0.5rem', fontWeight: '750', fontSize: '1rem', color: '#b32638' }}>

@@ -90,7 +90,7 @@ export function CustomerLayout({ children }) {
       <aside className={`caf-sidebar ${mobileOpen ? 'caf-sidebar--open' : ''}`} aria-label="Customer sidebar">
         <Link to="/menu" className="caf-brand" onClick={() => setMobileOpen(false)}>
           <span className="caf-brand-mark"><Utensils size={29} strokeWidth={2} /></span>
-          <strong>Office Cafeteria</strong>
+          <strong>TorchXBite</strong>
           <small>Good Food <span>•</span> Better Mood</small>
         </Link>
         <nav className="caf-side-links" aria-label="Main navigation">

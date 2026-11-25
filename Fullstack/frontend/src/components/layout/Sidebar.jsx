@@ -67,7 +67,7 @@ export const Sidebar = () => {
                 letterSpacing: '-0.02em',
               }}
             >
-              Office<span style={{ color: '#ffb4d5' }}>Bite</span>
+              TorchX<span style={{ color: '#ffb4d5' }}>Bite</span>
             </div>
             <div
               style={{

@@ -162,7 +162,7 @@ export const CheckoutPage = () => {
             amount: checkout.amount,
             currency: "INR",
 
-            name: "OfficeBite",
+            name: "TorchXBite",
 
             description:
               `Order ${createdOrder.orderNumber}`,

@@ -195,7 +195,7 @@ app.get("/api/health", (req, res) => {
     .json({
       success: connected,
 
-      service: "OfficeBite API",
+      service: "TorchXBite API",
 
       database: connected
         ? "connected"
@@ -325,7 +325,7 @@ if (fs.existsSync(frontendIndex)) {
     return res.json({
       success: true,
 
-      service: "OfficeBite API",
+      service: "TorchXBite API",
 
       message:
         "Run the Vite frontend on port 5173.",

@@ -1,25 +1,9 @@
-
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
-
-  <circle cx="40" cy="40" r="37" fill="#FF7900"></circle>
-
-  <g fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
-    <!-- Fork -->
-    <path d="
-      M24 18 V42
-      M18 18 V30
-      Q18 37 24 37
-      Q30 37 30 30
-      V18
-      M24 42 V61
-    "></path>
-
-    <!-- Spoon -->
-    <ellipse cx="53" cy="29" rx="9" ry="13"></ellipse>
-
-    <path d="M53 42 V61"></path>
-
-    <!-- Decorative curved line -->
-    <path d="M20 65 Q40 73 60 65" stroke-width="2.5"></path>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="18" fill="#173f35" />
+  <g transform="translate(14, 14) scale(1.5)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 2v2" />
+    <path d="M14 2v2" />
+    <path d="M6 2v2" />
+    <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" />
   </g>
 </svg>

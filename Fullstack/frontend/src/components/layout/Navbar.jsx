@@ -155,16 +155,16 @@ export const Navbar = () => {
         <Link
           to="/"
           className="ob-logo"
-          aria-label="OfficeBite home"
+          aria-label="TorchXBite home"
         >
           <span className="ob-logo-mark">
             <UtensilsCrossed size={19} />
           </span>
 
           <span>
-            office
+            TorchX
             <span className="brand-accent">
-              bite.
+              Bite.
             </span>
           </span>
         </Link>
