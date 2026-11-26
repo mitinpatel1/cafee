@@ -467,6 +467,36 @@ export const api = {
     return data;
   },
 
+  getAdminSeats: async (franchiseId) => {
+    const token = getToken();
+    const response = await fetch(
+      `${API_BASE}/orders/admin/seats?franchiseId=${encodeURIComponent(franchiseId)}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      }
+    );
+    return handleResponse(response);
+  },
+
+  assignAdminSeat: async (orderId, seatNumber) => {
+    const token = getToken();
+    const response = await fetch(
+      `${API_BASE}/orders/admin/${orderId}/seat`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ seatNumber }),
+      }
+    );
+    return handleResponse(response);
+  },
+
   // ===================================================
   // 7. INVENTORY MANAGEMENT
   // ===================================================

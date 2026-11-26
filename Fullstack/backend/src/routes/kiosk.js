@@ -87,6 +87,7 @@ function publicOrder(order) {
     upiReferenceSubmitted: Boolean(
       order.counterPaymentReference
     ),
+    counterPaymentReference: order.counterPaymentReference || "",
 
     seatPending:
       order.paymentStatus === "Paid" &&
@@ -1148,18 +1149,59 @@ router.get(
   }
 );
 
-// Manual UTR submission is disabled.
-// Payment must be confirmed by Cashfree.
+// ============================================
+// SUBMIT UPI TRANSACTION REFERENCE (UTR)
+// ============================================
 
 router.post(
   "/orders/:id/upi-reference",
+  throttle(90, 5 * 60 * 1000),
   ownedGuestOrder,
-  (_req, res) =>
-    fail(
-      res,
-      410,
-      "Manual UPI reference entry is disabled. Payment is verified automatically by Cashfree."
-    )
+  async (req, res) => {
+    try {
+      const reference = String(
+        req.body?.upiReference ||
+        req.body?.reference ||
+        req.body?.utr ||
+        ""
+      ).trim();
+
+      if (!reference || reference.length < 4 || reference.length > 120) {
+        return fail(
+          res,
+          400,
+          "Please enter a valid UPI reference / UTR number (4 to 120 characters)."
+        );
+      }
+
+      const order = await Order.findById(req.guestOrder._id);
+      if (!order) {
+        return fail(res, 404, "Order not found.");
+      }
+
+      if (order.paymentStatus === "Paid") {
+        return res.json({
+          success: true,
+          message: "Payment is already marked as Paid.",
+          order: publicOrder(order),
+        });
+      }
+
+      order.counterPaymentReference = reference;
+      await order.save();
+
+      notify(req, order);
+
+      return res.json({
+        success: true,
+        message: "UPI reference submitted successfully. Staff will verify your payment.",
+        order: publicOrder(order),
+      });
+    } catch (err) {
+      console.error("Submit UPI reference error:", err);
+      return fail(res, 500, "Could not submit UPI reference.");
+    }
+  }
 );
 
 // ============================================

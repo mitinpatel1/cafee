@@ -8,7 +8,11 @@ const Order = require("../models/Order");
 const MenuItem = require("../models/MenuItem");
 const Franchise = require("../models/Franchise");
 const { protect, authorize } = require("../middleware/auth");
-const { releaseSeat } = require("../services/seatService");
+const {
+  releaseSeat,
+  listSeats,
+  assignSeatByCustomer,
+} = require("../services/seatService");
 
 const router = express.Router();
 
@@ -932,6 +936,64 @@ router.patch(
 );
 
 // ============================================
+// SUBMIT CUSTOMER UPI REFERENCE
+// ============================================
+
+router.post("/:id/upi-reference", protect, async (req, res) => {
+  try {
+    const reference = String(
+      req.body?.upiReference ||
+      req.body?.reference ||
+      req.body?.utr ||
+      ""
+    ).trim();
+
+    if (!reference || reference.length < 4 || reference.length > 120) {
+      return fail(
+        res,
+        400,
+        "Please enter a valid UPI reference (4 to 120 characters)."
+      );
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return fail(res, 404, "Order not found.");
+    }
+
+    if (
+      String(order.userId) !== String(req.user._id) &&
+      req.user.role !== "admin"
+    ) {
+      return fail(res, 403, "Not authorized to update this order.");
+    }
+
+    if (order.paymentStatus === "Paid") {
+      return res.json({
+        success: true,
+        message: "Payment is already marked as Paid.",
+        order,
+      });
+    }
+
+    order.counterPaymentReference = reference;
+    await order.save();
+
+    notifyOrder(req, order);
+    notifyPayment(req, order);
+
+    return res.json({
+      success: true,
+      message: "UPI reference submitted successfully.",
+      order,
+    });
+  } catch (err) {
+    console.error("Order UPI reference error:", err);
+    return fail(res, 500, err.message);
+  }
+});
+
+// ============================================
 // GET SINGLE ORDER
 // ============================================
 
@@ -1000,11 +1062,55 @@ router.get("/:id", protect, async (req, res) => {
 });
 
 // ============================================
-// ADMIN SEAT ASSIGNMENT REMOVED
+// ADMIN SEAT AVAILABILITY
 // ============================================
 
-// No PATCH /admin/:id/seat endpoint.
-// Seat selection is handled ONLY by:
-// POST /api/kiosk/orders/:id/seat
+router.get("/admin/seats", protect, authorize("admin"), async (req, res) => {
+  try {
+    const { franchiseId } = req.query;
+    if (!franchiseId || !validId(franchiseId)) {
+      return fail(res, 400, "Valid franchise ID is required.");
+    }
+
+    const result = await listSeats(franchiseId);
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    console.error("Admin list seats error:", err);
+    return fail(res, 500, err.message || "Unable to load seats.");
+  }
+});
+
+// ============================================
+// ADMIN MANUAL SEAT ASSIGNMENT
+// ============================================
+
+router.patch("/admin/:id/seat", protect, authorize("admin"), async (req, res) => {
+  try {
+    if (!validId(req.params.id)) {
+      return fail(res, 400, "Invalid order ID.");
+    }
+
+    const { seatNumber } = req.body;
+    if (!seatNumber) {
+      return fail(res, 400, "Seat number is required.");
+    }
+
+    const updatedOrder = await assignSeatByCustomer(req.params.id, seatNumber);
+    notifyOrder(req, updatedOrder);
+
+    return res.json({
+      success: true,
+      message: `Seat ${updatedOrder.seatNumber} assigned successfully.`,
+      seatNumber: updatedOrder.seatNumber,
+      order: updatedOrder,
+    });
+  } catch (err) {
+    console.error("Admin assign seat error:", err);
+    return fail(res, err.statusCode || 400, err.message || "Unable to assign seat.");
+  }
+});
 
 module.exports = router;

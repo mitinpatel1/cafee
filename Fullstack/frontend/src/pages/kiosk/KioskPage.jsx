@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   ShoppingCart,
+  Smartphone,
   Utensils,
   Wallet,
   X,
@@ -2054,7 +2055,7 @@ const [nonVegOnly, setNonVegOnly] = useState(false);
   );
 
   const [method, setMethod] = useState(
-    restoredOrder?.method || "Counter Cash"
+    restoredOrder?.method || "Online (Cashfree)"
   );
 
   const [activeOrder, setActiveOrder] = useState(
@@ -3196,32 +3197,17 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
   // ============================================
 
   const paymentMethods = [
-    ...(onlineEnabled
-      ? [
-          {
-            value: "Online (Cashfree)",
-            label: "Pay online",
-            description:
-              "UPI, cards and net banking",
-            icon: CreditCard,
-          },
-        ]
-      : []),
-
+    {
+      value: "Online (Cashfree)",
+      label: "Pay Online",
+      description: "Scan QR code to pay via UPI (GPay, PhonePe, Paytm)",
+      icon: QrCode,
+    },
     {
       value: "Counter Cash",
-      label: "Cash on Counter",
-      description: "Pay our cashier",
+      label: "Pay Cash",
+      description: "Pay cash at counter. Seat will be assigned by cashier",
       icon: Wallet,
-    },
-
-    {
-      value: "Counter UPI",
-      label: qrEnabled ? "Pay by UPI" : "UPI",
-      description: qrEnabled
-        ? "Open secure Cashfree checkout and choose UPI"
-        : "Cashfree UPI checkout is unavailable; cashier verifies payment",
-      icon: QrCode,
     },
   ];
 
@@ -3798,11 +3784,6 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                         disabled={busy}
                         onChange={() => {
                           setMethod(value);
-                          // A provider QR requires an order ID; create an
-                          // unpaid order on selection, then show its QR.
-                          if (value === "Counter UPI" && qrEnabled) {
-                            void placeOrder("Counter UPI");
-                          }
                         }}
                       />
 
@@ -3826,19 +3807,11 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                 )}
               </div>
 
-              {method === "Counter UPI" && (
-                <div className="cafe-hint" role="status">
-                  <QrCode size={18} />
-                  {qrEnabled
-                    ? "Selecting UPI creates your order. Open Cashfree Checkout and choose a UPI app or UPI ID. Seat selection unlocks after verified payment."
-                    : "Cashfree UPI checkout is unavailable. Please pay at the counter for manual verification."}
-                </div>
-              )}
-
-              <div className="cafe-hint">
+              <div className="cafe-hint" role="status">
                 <ShieldCheck size={18} />
-                You can select your own
-                available seat after payment.
+                {method === "Counter Cash"
+                  ? "Cash on Counter: Payment verify hone ke baad cashier seat assign karega."
+                  : "Pay Online: QR scan karke payment karein. Payment hone ke baad aap khud seat choose karenge."}
               </div>
 
               <button
@@ -4023,77 +3996,57 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                   </div>
                 )}
 
-                {!paid(activeOrder?.order) && qrEnabled && activeOrder?.method === "Counter UPI" && !upiQr?.paymentSessionId && (
-                  <div className="cafe-hint" role="status" style={{display:"flex",flexDirection:"column",gap:10,alignItems:"center"}}>
-                    <QrCode size={24} aria-hidden="true" />
-                    <span>Preparing your secure Cashfree UPI checkout...</span>
-                    <button
-                      type="button"
-                      className="cafe-secondary"
-                      disabled={busy}
-                      onClick={() => void createUpiQr(activeOrder.order, activeOrder.key)}
-                    >
-                      <RefreshCw size={17} /> Retry checkout setup
-                    </button>
-                  </div>
-                )}
-
-                {!paid(activeOrder.order) && upiQr?.paymentSessionId && activeOrder?.method === "Counter UPI" && (
+                {/* ONLINE QR PAYMENT CARD */}
+                {!paid(activeOrder.order) && activeOrder.method !== "Counter Cash" && (
                   <div className="cafe-hint cafe-qr-payment" role="region" aria-label="Cashfree UPI payment">
-                    <QrCode size={34} aria-hidden="true" />
-                    <strong>Pay securely using UPI</strong>
-                    <small>Cashfree Checkout mein UPI app ya UPI ID select karein. Payment server se verify hone ke baad seat selection unlock hogi.</small>
+                    <QrCode size={38} aria-hidden="true" style={{ color: "var(--forest)" }} />
+                    <strong style={{ fontSize: "1.15rem" }}>Scan QR to Pay Online</strong>
+                    <small>GPay, PhonePe, Paytm ya kisi bhi UPI app se QR scan karke payment karein.</small>
                     <button
                       type="button"
                       className="cafe-primary cafe-full"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          await launchCashfreeCheckout(
-                            activeOrder.order,
-                            activeOrder.key,
-                            upiQr
-                          );
-                        } catch (err) {
-                          setError(err.message);
-                        } finally {
-                          setBusy(false);
-                        }
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 10,
+                        padding: "14px 20px",
+                        fontSize: "1.05rem",
+                        marginTop: "8px",
                       }}
-                    >
-                      <QrCode size={18} /> Open Cashfree UPI Checkout
-                    </button>
-                  </div>
-                )}
-
-                {!paid(activeOrder.order) && (
-                  <div className="cafe-hint">
-                    <ShieldCheck size={19} />
-
-                    {activeOrder.method ===
-                    "Online (Cashfree)"
-                      ? "Complete your secure online payment before the timer ends."
-                      : activeOrder.method === "Counter UPI" && qrEnabled
-                      ? "Complete UPI payment in Cashfree Checkout. Your seat unlocks only when the server confirms payment."
-                      : "Please pay at the counter. Admin will verify the payment."}
-                  </div>
-                )}
-
-                {!paid(activeOrder.order) &&
-                  activeOrder.method ===
-                    "Online (Cashfree)" && (
-                    <button
-                      className="cafe-secondary cafe-full"
                       disabled={busy}
                       onClick={retryPayment}
                     >
-                      <RefreshCw size={17} />
-
-                      Retry online payment
+                      <QrCode size={20} />
+                      <span>Open QR Code / Pay Now</span>
                     </button>
-                  )}
+                  </div>
+                )}
+
+                {/* CASH AT COUNTER CARD */}
+                {!paid(activeOrder.order) && activeOrder.method === "Counter Cash" && (
+                  <div
+                    className="cafe-hint"
+                    style={{
+                      background: "#fefce8",
+                      border: "1.5px solid #fde047",
+                      color: "#854d0e",
+                      textAlign: "left",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "14px 16px",
+                    }}
+                  >
+                    <Wallet size={26} style={{ color: "#ca8a04", flexShrink: 0 }} />
+                    <div>
+                      <strong style={{ display: "block", fontSize: "1rem" }}>Pay Cash at Counter</strong>
+                      <span style={{ fontSize: "0.88rem" }}>
+                        Kripya counter par jakar cash pay karein. Cashier payment confirm karke aapko seat assign karega.
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Cancel only when the provider-backed order is still unpaid. */}
                 {!paid(activeOrder.order) &&
@@ -4109,9 +4062,50 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                     </button>
                   )}
 
-                {/* CUSTOMER SEAT SELECTION */}
+                {/* CASH ORDER: SEAT ASSIGNED BY CASHIER */}
+                {activeOrder.method === "Counter Cash" && (
+                  <div
+                    className="cafe-hint"
+                    style={{
+                      background: hasSeat(activeOrder.order) ? "#f0fdf4" : "#fefce8",
+                      border: `1.5px solid ${hasSeat(activeOrder.order) ? "#86efac" : "#fde047"}`,
+                      padding: "20px",
+                      textAlign: "center",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    {hasSeat(activeOrder.order) ? (
+                      <>
+                        <CheckCircle2 size={32} style={{ color: "#16a34a" }} />
+                        <strong style={{ fontSize: "1.15rem", color: "#15803d" }}>
+                          Seat {activeOrder.order.seatNumber} Assigned by Cashier!
+                        </strong>
+                        <p style={{ margin: 0, color: "#166534", fontSize: "0.95rem" }}>
+                          Aapki seat confirm ho gayi hai. Enjoy your meal!
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Armchair size={30} style={{ color: "#ca8a04" }} />
+                        <strong style={{ fontSize: "1.15rem", color: "#854d0e" }}>
+                          {paid(activeOrder.order) ? "Payment Received — Seat Assignment Pending" : "Seat Selection by Cashier"}
+                        </strong>
+                        <p style={{ margin: 0, color: "#713f12", fontSize: "0.95rem" }}>
+                          {paid(activeOrder.order)
+                            ? "Payment receive ho chuka hai. Cashier / Admin aapko seat assign kar raha hai."
+                            : "Cash order me seat Cashier / Admin assign karega. Kripya counter par wait karein."}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
 
-                {paid(activeOrder.order) &&
+                {/* ONLINE ORDER: CUSTOMER CHOOSES SEAT AFTER PAYMENT */}
+                {activeOrder.method !== "Counter Cash" &&
+                  paid(activeOrder.order) &&
                   !hasSeat(activeOrder.order) && (
                     <div className="cafe-seat-section">
                       <div className="cafe-seat-heading">
@@ -4121,8 +4115,7 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                           </h2>
 
                           <p>
-                            Tap an available
-                            green seat.
+                            Payment successful! Tap an available green seat to confirm.
                           </p>
                         </div>
 

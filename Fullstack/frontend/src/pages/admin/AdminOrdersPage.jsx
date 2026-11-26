@@ -9,7 +9,7 @@ import {
 } from "../../components/ui/CafeteriaKit";
 import {
   Armchair, CheckCircle2, ChefHat, ChevronDown, Clock3,
-  CreditCard, RefreshCw, ShoppingBag, Trash2, Wallet,
+  CreditCard, RefreshCw, ShoppingBag, Smartphone, Trash2, Wallet,
 } from "lucide-react";
 
 const statuses = ["All", "Pending", "Confirmed", "Preparing", "Ready", "Picked Up", "Cancelled"];
@@ -32,6 +32,9 @@ export const AdminOrdersPage = () => {
   const [notice, setNotice] = useState("");
   const [eta, setEta] = useState({});
   const [refs, setRefs] = useState({});
+  const [selectedSeats, setSelectedSeats] = useState({});
+  const [seatsData, setSeatsData] = useState({});
+  const [seatsLoading, setSeatsLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const query = (searchParams.get("q") || "").trim().toLowerCase();
   const { socket } = useSocket();
@@ -62,15 +65,63 @@ export const AdminOrdersPage = () => {
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Expanding an order no longer triggers admin-side seat lookups.
-  // Customers select their own seats after payment is verified.
+  const getFranchiseId = (order) =>
+    typeof order?.franchiseId === "object"
+      ? order?.franchiseId?._id
+      : order?.franchiseId;
+
+  const loadSeatsForOrder = async (order) => {
+    const fId = getFranchiseId(order);
+    if (!fId) return;
+    setSeatsLoading(true);
+    try {
+      const data = await api.getAdminSeats(fId);
+      setSeatsData((prev) => ({ ...prev, [fId]: data }));
+    } catch (e) {
+      console.error("Failed to load seats for admin orders:", e);
+    } finally {
+      setSeatsLoading(false);
+    }
+  };
+
   const openOrder = (order) => {
-    setExpanded((previous) => previous === order._id ? null : order._id);
+    setExpanded((previous) => {
+      const nextExp = previous === order._id ? null : order._id;
+      if (nextExp) {
+        loadSeatsForOrder(order);
+      }
+      return nextExp;
+    });
+  };
+
+  const assignCustomSeat = async (order) => {
+    const seatNumber = Number(selectedSeats[order._id]);
+    if (!Number.isInteger(seatNumber) || seatNumber < 1) {
+      setError("Please select a valid seat number.");
+      return;
+    }
+    setBusy(order._id);
+    setError("");
+    setNotice("");
+    try {
+      await api.assignAdminSeat(order._id, seatNumber);
+      setNotice(`Seat ${seatNumber} assigned to ${orderId(order)}.`);
+      await refresh();
+      await loadSeatsForOrder(order);
+    } catch (err) {
+      setError(err.message || "Unable to assign seat.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const confirmCounterPayment = async (order) => {
     if (busy) return;
-    const reference = String(refs[order._id] || "").trim();
+    const reference = String(
+      refs[order._id] !== undefined
+        ? refs[order._id]
+        : (order.counterPaymentReference || "")
+    ).trim();
     if (order.paymentMethod === "Counter UPI" && (reference.length < 4 || reference.length > 120)) {
       setError("Enter a valid UPI transaction reference.");
       return;
@@ -79,8 +130,10 @@ export const AdminOrdersPage = () => {
     setBusy(order._id); setError(""); setNotice("");
     try {
       await api.collectCounterPayment(order._id, reference);
-      setNotice(`Payment verified for ${orderId(order)}. Customer can now select an available seat.`);
+      const isCash = order.paymentMethod === "Counter Cash" || order.paymentMethod === "Cash on Pickup";
+      setNotice(`Payment verified for ${orderId(order)}. ${isCash ? "Please assign a seat below." : "Customer can now select an available seat."}`);
       await refresh();
+      await loadSeatsForOrder(order);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -95,7 +148,12 @@ export const AdminOrdersPage = () => {
       return;
     }
     if (status === "Confirmed" && !order.seatNumber) {
-      setError("Customer must select a seat before the order can be confirmed.");
+      const isCash = order.paymentMethod === "Counter Cash" || order.paymentMethod === "Cash on Pickup";
+      setError(
+        isCash
+          ? "Please assign a seat to this cash order before confirming."
+          : "Customer must select a seat on Kiosk before this order can be confirmed."
+      );
       return;
     }
     if (status === "Cancelled" && order.paymentStatus === "Paid") {
@@ -173,6 +231,7 @@ export const AdminOrdersPage = () => {
             const expandedHere = expanded === order._id;
             const next = nextStatus[order.status];
             const canPay = counterMethods.includes(order.paymentMethod) && order.paymentStatus !== "Paid" && order.status !== "Cancelled";
+            const isCashOrder = order.paymentMethod === "Counter Cash" || order.paymentMethod === "Cash on Pickup";
             return (
               <React.Fragment key={order._id}>
                 <tr>
@@ -194,8 +253,25 @@ export const AdminOrdersPage = () => {
                         <p><strong>Tracking:</strong> {order.trackingCode || "—"}</p>
                         <p><strong>Method:</strong> {order.paymentMethod}</p>
                         <p><strong>Payment:</strong> {order.paymentStatus}</p>
+                        {order.counterPaymentReference && (
+                          <p>
+                            <strong>Transaction Ref / UTR:</strong>{" "}
+                            <span style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              background: "#ecfdf5",
+                              border: "1px solid #6ee7b7",
+                              borderRadius: 4,
+                              color: "#065f46",
+                              fontFamily: "monospace",
+                              fontWeight: 700,
+                            }}>
+                              {order.counterPaymentReference}
+                            </span>
+                          </p>
+                        )}
                         <p><strong>Order:</strong> {order.status}</p>
-                        <p><strong>Seat:</strong> {order.seatNumber != null ? `Seat ${order.seatNumber}` : "Not selected by customer"}</p>
+                        <p><strong>Seat:</strong> {order.seatNumber != null ? `Seat ${order.seatNumber} (${isCashOrder ? "Assigned by Admin" : "Selected by Customer"})` : isCashOrder ? "Not assigned (Admin assigns)" : "Not selected yet (Customer chooses on Kiosk)"}</p>
                         <p><strong>ETA:</strong> {formatDate(order.estimatedReadyTime)}</p>
                         <p><strong>Items:</strong> {orderItemsText(order)}</p>
                         {order.notes && <p><strong>Notes:</strong> {order.notes}</p>}
@@ -203,18 +279,110 @@ export const AdminOrdersPage = () => {
                       <div className="cf-order-actions">
                         {canPay && (
                           <>
-                            {order.paymentMethod === "Counter UPI" &&
-                              <input type="text" className="cf-upi-input" maxLength={120}
-                                placeholder="UPI reference" aria-label="UPI reference"
-                                value={refs[order._id] || ""}
-                                onChange={(e) => setRefs((p) => ({ ...p, [order._id]: e.target.value }))} />}
+                            {order.paymentMethod === "Counter UPI" && (
+                              <div style={{ width: "100%", marginBottom: "6px" }}>
+                                {order.counterPaymentReference && (
+                                  <div style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    padding: "5px 10px",
+                                    background: "#ecfdf5",
+                                    border: "1.5px solid #6ee7b7",
+                                    borderRadius: "6px",
+                                    color: "#065f46",
+                                    fontSize: "0.85rem",
+                                    fontWeight: 600,
+                                    marginBottom: "6px"
+                                  }}>
+                                    <Smartphone size={15} />
+                                    <span>Customer UPI Ref: <strong style={{ color: "#047857", letterSpacing: "0.5px" }}>{order.counterPaymentReference}</strong></span>
+                                  </div>
+                                )}
+                                <input type="text" className="cf-upi-input" maxLength={120}
+                                  placeholder="UPI reference" aria-label="UPI reference"
+                                  value={refs[order._id] !== undefined ? refs[order._id] : (order.counterPaymentReference || "")}
+                                  onChange={(e) => setRefs((p) => ({ ...p, [order._id]: e.target.value }))} />
+                              </div>
+                            )}
                             <button className="cf-primary" type="button" disabled={Boolean(busy)} onClick={() => confirmCounterPayment(order)}>
                               <Wallet size={16} /> Confirm Counter Payment
                             </button>
                           </>
                         )}
 
-                        {order.seatNumber && <p style={{ color: "#15803d", fontWeight: 700 }}><CheckCircle2 size={16} /> Seat {order.seatNumber} selected by customer</p>}
+                        {/* CASH ORDER: SEAT ASSIGNMENT BY ADMIN */}
+                        {isCashOrder && order.paymentStatus === "Paid" && !order.seatNumber && (
+                          <div style={{
+                            display: "grid",
+                            gap: 8,
+                            width: "100%",
+                            padding: 12,
+                            border: "1px solid #f1d8c0",
+                            borderRadius: 8,
+                            background: "#fffaf5",
+                            margin: "6px 0",
+                          }}>
+                            <label htmlFor={`seat-${order._id}`} style={{ fontWeight: 700 }}>
+                              Assign Seat to Customer (Cash Order)
+                            </label>
+                            <select
+                              id={`seat-${order._id}`}
+                              value={selectedSeats[order._id] || ""}
+                              onChange={(e) => setSelectedSeats((p) => ({ ...p, [order._id]: e.target.value }))}
+                              disabled={Boolean(busy) || Boolean(seatsLoading)}
+                              style={{
+                                width: "100%",
+                                padding: "8px 10px",
+                                border: "1px solid #ead8c8",
+                                borderRadius: 6,
+                                background: "#ffffff",
+                              }}
+                            >
+                              <option value="">Select available seat</option>
+                              {(seatsData[getFranchiseId(order)]?.available || []).map((num) => (
+                                <option key={num} value={num}>
+                                  Seat {num}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="cf-primary"
+                              type="button"
+                              disabled={Boolean(busy) || !selectedSeats[order._id] || Boolean(seatsLoading)}
+                              onClick={() => assignCustomSeat(order)}
+                            >
+                              <Armchair size={15} /> Assign Seat to Customer
+                            </button>
+                          </div>
+                        )}
+
+                        {/* ONLINE ORDER: WAITING FOR CUSTOMER SELECTION */}
+                        {!isCashOrder && order.paymentStatus === "Paid" && !order.seatNumber && (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "10px 12px",
+                            background: "#eff6ff",
+                            border: "1.5px solid #bfdbfe",
+                            borderRadius: 6,
+                            color: "#1e40af",
+                            fontSize: "0.88rem",
+                            fontWeight: 600,
+                            margin: "6px 0",
+                          }}>
+                            <Armchair size={16} />
+                            <span>Online Order: Customer is selecting seat on Kiosk.</span>
+                          </div>
+                        )}
+
+                        {order.seatNumber && (
+                          <p style={{ color: "#15803d", fontWeight: 700 }}>
+                            <CheckCircle2 size={16} /> Seat {order.seatNumber} ({isCashOrder ? "Assigned by Admin" : "Selected by Customer"})
+                          </p>
+                        )}
+
                         {next && (
                           <>
                             {["Pending", "Confirmed"].includes(order.status) &&
@@ -234,8 +402,6 @@ export const AdminOrdersPage = () => {
                           <button type="button" className="cf-outlined" disabled={Boolean(busy)} onClick={() => updateStatus(order, "Cancelled")}>
                             <Trash2 size={15} /> Cancel Unpaid Order
                           </button>}
-                        {order.paymentStatus === "Paid" && !order.seatNumber &&
-                          <p style={{ color: "#b45309" }}><CreditCard size={14} /> Payment received — awaiting customer seat selection.</p>}
                       </div>
                     </div>
                   </td></tr>

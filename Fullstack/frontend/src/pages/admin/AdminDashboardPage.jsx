@@ -38,6 +38,7 @@ import {
   CreditCard,
   RefreshCw,
   ShoppingBag,
+  Smartphone,
   Trash2,
   Wallet,
 } from "lucide-react";
@@ -107,9 +108,9 @@ const getFranchiseId = (order) =>
 // Uses the same token as frontend/src/api/api.js.
 
 async function adminRequest(path, options = {}) {
-  const token = localStorage.getItem(
-    "officebite_token"
-  );
+  const token =
+    localStorage.getItem("officebite_token_admin") ||
+    localStorage.getItem("officebite_token");
 
   if (!token) {
     throw new Error(
@@ -336,9 +337,9 @@ export const AdminOrdersPage = () => {
 
         return result;
       } catch (err) {
-        setError(
-          err.message ||
-            "Unable to load available seats."
+        console.warn(
+          "Unable to load available seats:",
+          err.message
         );
 
         return null;
@@ -521,7 +522,9 @@ export const AdminOrdersPage = () => {
       if (busy) return;
 
       const reference = String(
-        refs[order._id] || ""
+        refs[order._id] !== undefined
+          ? refs[order._id]
+          : (order.counterPaymentReference || "")
       ).trim();
 
       // Counter UPI reference.
@@ -612,8 +615,13 @@ export const AdminOrdersPage = () => {
           "Confirmed" &&
         order.seatNumber == null
       ) {
+        const isCash =
+          order.paymentMethod === "Counter Cash" ||
+          order.paymentMethod === "Cash on Pickup";
         setError(
-          "Assign a custom seat before confirming this order."
+          isCash
+            ? "Assign a custom seat to this cash order before confirming."
+            : "Customer must select a seat on Kiosk before this order can be confirmed."
         );
 
         return;
@@ -999,6 +1007,10 @@ export const AdminOrdersPage = () => {
                   order.status
                 );
 
+              const isCashOrder =
+                order.paymentMethod === "Counter Cash" ||
+                order.paymentMethod === "Cash on Pickup";
+
               const canAssign =
                 order.paymentStatus ===
                   "Paid" &&
@@ -1008,7 +1020,8 @@ export const AdminOrdersPage = () => {
                   "Picked Up",
                 ].includes(
                   order.status
-                );
+                ) &&
+                isCashOrder;
 
               const assigning =
                 busy ===
@@ -1198,6 +1211,28 @@ export const AdminOrdersPage = () => {
                               {order.paymentStatus}
                             </p>
 
+                            {order.counterPaymentReference && (
+                              <p>
+                                <strong>
+                                  Transaction Ref / UTR:
+                                </strong>{" "}
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    padding: "2px 8px",
+                                    background: "#ecfdf5",
+                                    border: "1px solid #6ee7b7",
+                                    borderRadius: 4,
+                                    color: "#065f46",
+                                    fontFamily: "monospace",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {order.counterPaymentReference}
+                                </span>
+                              </p>
+                            )}
+
                             <p>
                               <strong>
                                 Order:
@@ -1258,30 +1293,52 @@ export const AdminOrdersPage = () => {
 
                                 {order.paymentMethod ===
                                   "Counter UPI" && (
-                                  <input
-                                    type="text"
-                                    className="cf-upi-input"
-                                    maxLength={120}
-                                    placeholder="UPI reference"
-                                    aria-label="UPI reference"
-                                    value={
-                                      refs[
-                                        order._id
-                                      ] || ""
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      setRefs(
-                                        (previous) => ({
-                                          ...previous,
+                                  <div style={{ width: "100%", marginBottom: "8px" }}>
+                                    {order.counterPaymentReference && (
+                                      <div style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "6px",
+                                        padding: "6px 12px",
+                                        background: "#ecfdf5",
+                                        border: "1.5px solid #6ee7b7",
+                                        borderRadius: "6px",
+                                        color: "#065f46",
+                                        fontSize: "0.88rem",
+                                        fontWeight: 600,
+                                        marginBottom: "6px"
+                                      }}>
+                                        <Smartphone size={16} />
+                                        <span>Customer UPI Ref: <strong style={{ color: "#047857", letterSpacing: "0.5px" }}>{order.counterPaymentReference}</strong></span>
+                                      </div>
+                                    )}
+                                    <input
+                                      type="text"
+                                      className="cf-upi-input"
+                                      maxLength={120}
+                                      placeholder="UPI reference"
+                                      aria-label="UPI reference"
+                                      value={
+                                        refs[
+                                          order._id
+                                        ] !== undefined
+                                          ? refs[order._id]
+                                          : (order.counterPaymentReference || "")
+                                      }
+                                      onChange={(
+                                        event
+                                      ) =>
+                                        setRefs(
+                                          (previous) => ({
+                                            ...previous,
 
-                                          [order._id]:
-                                            event.target.value,
-                                        })
-                                      )
-                                    }
-                                  />
+                                            [order._id]:
+                                              event.target.value,
+                                          })
+                                        )
+                                      }
+                                    />
+                                  </div>
                                 )}
 
                                 <button
@@ -1506,6 +1563,31 @@ export const AdminOrdersPage = () => {
                               </div>
                             )}
 
+                            {order.paymentStatus === "Paid" &&
+                              order.seatNumber == null &&
+                              !isCashOrder && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    padding: "10px 14px",
+                                    background: "#eff6ff",
+                                    border: "1.5px solid #bfdbfe",
+                                    borderRadius: 10,
+                                    color: "#1e40af",
+                                    fontSize: "0.9rem",
+                                    fontWeight: 600,
+                                    margin: "6px 0",
+                                  }}
+                                >
+                                  <Armchair size={18} />
+                                  <span>
+                                    Online Order: Customer will select seat directly on Kiosk.
+                                  </span>
+                                </div>
+                              )}
+
                             {/* =================
                                 ASSIGNED SEAT
                             ================= */}
@@ -1529,7 +1611,7 @@ export const AdminOrdersPage = () => {
                                 />{" "}
                                 Seat{" "}
                                 {order.seatNumber}{" "}
-                                assigned by Admin
+                                ({isCashOrder ? "Assigned by Admin" : "Selected by Customer"})
                               </p>
                             )}
 
