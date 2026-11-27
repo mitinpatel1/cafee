@@ -235,8 +235,23 @@ export const FranchiseOrdersPage = () => {
   // ========================================
 
   useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+    let active = true;
+    api.getFranchiseOrders()
+      .then((response) => {
+        if (!active) return;
+        if (!response.success) throw new Error("Unable to load franchise orders.");
+        setOrders(Array.isArray(response.orders) ? response.orders : []);
+        setLastUpdated(new Date());
+        setError("");
+      })
+      .catch((err) => {
+        if (active) setError(err.message || "Unable to fetch franchise orders.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   // ========================================
   // SOCKET.IO REAL-TIME UPDATES
@@ -1268,7 +1283,7 @@ export const FranchiseOrdersPage = () => {
                                     maxLength={120}
                                     aria-label="UPI transaction reference"
                                     placeholder="Customer UPI reference"
-                                    value={paymentReferences[order._id] || ""}
+                                    value={paymentReferences[order._id] ?? order.counterPaymentReference ?? ""}
                                     onChange={(event) => setPaymentReferences((previous) => ({
                                       ...previous,
                                       [order._id]: event.target.value,
