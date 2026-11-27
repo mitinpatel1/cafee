@@ -414,89 +414,6 @@ export const api = {
     return handleResponse(res);
   },
 
-  updateOrderStatus: async (
-    id,
-    status,
-    readyInMinutes
-  ) => {
-    const res = await fetch(
-      `${API_BASE}/orders/admin/${id}/status`,
-      {
-        method: "PATCH",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          status,
-          readyInMinutes,
-        }),
-      }
-    );
-
-    return handleResponse(res);
-  },
-
-  collectCounterPayment: async (id, reference = "") => {
-    const token = getToken();
-
-    const response = await fetch(
-      `${API_BASE}/orders/admin/${id}/counter-payment`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token
-            ? { Authorization: `Bearer ${token}` }
-            : {}),
-        },
-        body: JSON.stringify({
-          reference: String(reference).trim(),
-        }),
-      }
-    );
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      console.error("Counter payment failed:", data);
-
-      throw new Error(
-        data.message ||
-          "Unable to confirm counter payment."
-      );
-    }
-
-    return data;
-  },
-
-  getAdminSeats: async (franchiseId) => {
-    const token = getToken();
-    const response = await fetch(
-      `${API_BASE}/orders/admin/seats?franchiseId=${encodeURIComponent(franchiseId)}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      }
-    );
-    return handleResponse(response);
-  },
-
-  assignAdminSeat: async (orderId, seatNumber) => {
-    const token = getToken();
-    const response = await fetch(
-      `${API_BASE}/orders/admin/${orderId}/seat`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ seatNumber }),
-      }
-    );
-    return handleResponse(response);
-  },
-
   // ===================================================
   // 7. INVENTORY MANAGEMENT
   // ===================================================
@@ -665,25 +582,26 @@ export const api = {
     return handleResponse(res);
   },
 
-  updateFranchiseOrderStatus: async (id, status) => {
+  updateFranchiseOrderStatus: async (id, status, readyInMinutes) => {
     const res = await fetch(
       `${API_BASE}/franchise/orders/${id}/status`,
       {
         method: "PATCH",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, readyInMinutes }),
       }
     );
 
     return handleResponse(res);
   },
 
-  collectFranchiseCash: async (id) => {
+  collectFranchiseCash: async (id, reference = "") => {
     const res = await fetch(
       `${API_BASE}/franchise/orders/${id}/collect-cash`,
       {
         method: "PATCH",
         headers: getAuthHeaders(),
+        body: JSON.stringify({ reference: String(reference).trim() }),
       }
     );
 

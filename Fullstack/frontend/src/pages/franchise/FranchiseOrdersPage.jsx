@@ -66,6 +66,26 @@ const PAYMENT_STATUSES = [
   "Refunded",
 ];
 
+const NEXT_STATUS = {
+  Pending: "Confirmed",
+  Confirmed: "Preparing",
+  Preparing: "Ready",
+  Ready: "Picked Up",
+};
+
+const NEXT_STATUS_LABEL = {
+  Confirmed: "Confirm Order",
+  Preparing: "Start Preparing",
+  Ready: "Mark Ready",
+  "Picked Up": "Complete Order",
+};
+
+const COUNTER_METHODS = [
+  "Counter Cash",
+  "Counter UPI",
+  "Cash on Pickup",
+];
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -137,6 +157,14 @@ export const FranchiseOrdersPage = () => {
     useState(false);
 
   const [error, setError] = useState("");
+
+  const [notice, setNotice] = useState("");
+
+  const [busyOrder, setBusyOrder] = useState(null);
+
+  const [readyMinutes, setReadyMinutes] = useState({});
+
+  const [paymentReferences, setPaymentReferences] = useState({});
 
   const [statusFilter, setStatusFilter] =
     useState("All");
@@ -262,6 +290,66 @@ export const FranchiseOrdersPage = () => {
 
     setRefreshing(true);
     await fetchOrders();
+  };
+
+  const confirmCounterPayment = async (order) => {
+    const reference = String(paymentReferences[order._id] || "").trim();
+    if (order.paymentMethod === "Counter UPI" && (reference.length < 4 || reference.length > 120)) {
+      setError("Enter a valid UPI transaction reference.");
+      return;
+    }
+    if (!window.confirm(`Have you received ${portalMoney(order.total)} via ${order.paymentMethod}?`)) return;
+
+    setBusyOrder(order._id);
+    setError("");
+    setNotice("");
+    try {
+      await api.collectFranchiseCash(order._id, reference);
+      setNotice(`Payment verified for ${orderId(order)}. Customer can now select a seat.`);
+      await fetchOrders();
+    } catch (err) {
+      setError(err.message || "Unable to verify payment.");
+    } finally {
+      setBusyOrder(null);
+    }
+  };
+
+  const updateOrderStatus = async (order, status) => {
+    if (status !== "Cancelled" && order.paymentStatus !== "Paid") {
+      setError("Verify payment before accepting the order.");
+      return;
+    }
+    if (status === "Confirmed" && !order.seatNumber) {
+      setError("The customer must select a seat before you confirm the order.");
+      return;
+    }
+    if (status === "Cancelled" && order.paymentStatus === "Paid") {
+      setError("Paid orders require a refund before cancellation.");
+      return;
+    }
+
+    let minutes;
+    if (status === "Confirmed" || status === "Preparing") {
+      minutes = Number(readyMinutes[order._id] ?? order.readyInMinutes ?? 15);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 180) {
+        setError("ETA must be between 1 and 180 minutes.");
+        return;
+      }
+    }
+    if (!window.confirm(`Move ${orderId(order)} to ${status}?`)) return;
+
+    setBusyOrder(order._id);
+    setError("");
+    setNotice("");
+    try {
+      await api.updateFranchiseOrderStatus(order._id, status, minutes);
+      setNotice(`${orderId(order)}: ${status}${status === "Picked Up" ? " (seat released)." : "."}`);
+      await fetchOrders();
+    } catch (err) {
+      setError(err.message || "Unable to update order status.");
+    } finally {
+      setBusyOrder(null);
+    }
   };
 
   // ========================================
@@ -435,7 +523,7 @@ export const FranchiseOrdersPage = () => {
 
       <PageHead
         title="Franchise Orders"
-        subtitle="Monitor kiosk orders, payments, seating and food preparation across your outlets."
+        subtitle="Manage payments and order preparation for your own franchise outlets."
       >
         <button
           type="button"
@@ -546,6 +634,12 @@ export const FranchiseOrdersPage = () => {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="cf-notice" role="status">
+          <CheckCircle2 size={16} /> {notice}
         </div>
       )}
 
@@ -1139,7 +1233,7 @@ export const FranchiseOrdersPage = () => {
                               </p>
                             )}
 
-                          {/* PAYMENT NOTICE */}
+                          {/* FRANCHISE ORDER ACTIONS */}
 
                           {order.paymentStatus !==
                             "Paid" &&
@@ -1159,12 +1253,85 @@ export const FranchiseOrdersPage = () => {
                                 <CreditCard
                                   size={16}
                                 />{" "}
-                                Payment pending.
-                                The Service Admin
-                                must verify payment
-                                before confirming
-                                this order.
+                                Payment pending. Your franchise must verify payment before confirming this order.
                               </p>
+                            )}
+
+                          {order.status === "Pending" &&
+                            order.paymentStatus !== "Paid" &&
+                            COUNTER_METHODS.includes(order.paymentMethod) && (
+                              <>
+                                {order.paymentMethod === "Counter UPI" && (
+                                  <input
+                                    type="text"
+                                    className="cf-upi-input"
+                                    maxLength={120}
+                                    aria-label="UPI transaction reference"
+                                    placeholder="Customer UPI reference"
+                                    value={paymentReferences[order._id] || ""}
+                                    onChange={(event) => setPaymentReferences((previous) => ({
+                                      ...previous,
+                                      [order._id]: event.target.value,
+                                    }))}
+                                  />
+                                )}
+                                <button
+                                  type="button"
+                                  className="cf-primary"
+                                  disabled={Boolean(busyOrder)}
+                                  onClick={() => confirmCounterPayment(order)}
+                                >
+                                  <Wallet size={16} />
+                                  {busyOrder === order._id ? "Verifying..." : "Confirm Counter Payment"}
+                                </button>
+                              </>
+                            )}
+
+                          {NEXT_STATUS[order.status] && (
+                            <>
+                              {(order.status === "Pending" || order.status === "Confirmed") && (
+                                <label className="cf-eta-label">
+                                  ETA (minutes)
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={180}
+                                    value={readyMinutes[order._id] ?? order.readyInMinutes ?? 15}
+                                    onChange={(event) => setReadyMinutes((previous) => ({
+                                      ...previous,
+                                      [order._id]: event.target.value,
+                                    }))}
+                                  />
+                                </label>
+                              )}
+                              <button
+                                type="button"
+                                className="cf-primary"
+                                disabled={
+                                  Boolean(busyOrder) ||
+                                  order.paymentStatus !== "Paid" ||
+                                  (order.status === "Pending" && !order.seatNumber)
+                                }
+                                onClick={() => updateOrderStatus(order, NEXT_STATUS[order.status])}
+                              >
+                                <CheckCircle2 size={16} />
+                                {busyOrder === order._id
+                                  ? "Updating..."
+                                  : NEXT_STATUS_LABEL[NEXT_STATUS[order.status]]}
+                              </button>
+                            </>
+                          )}
+
+                          {["Pending", "Confirmed"].includes(order.status) &&
+                            order.paymentStatus !== "Paid" && (
+                              <button
+                                type="button"
+                                className="cf-outlined"
+                                disabled={Boolean(busyOrder)}
+                                onClick={() => updateOrderStatus(order, "Cancelled")}
+                              >
+                                Cancel Unpaid Order
+                              </button>
                             )}
 
                         </div>

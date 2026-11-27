@@ -489,10 +489,7 @@ router.patch(
         String(order.userId) ===
           String(req.user._id);
 
-      if (
-        !isOwner &&
-        req.user.role !== "admin"
-      ) {
+      if (!isOwner) {
         return fail(
           res,
           403,
@@ -584,7 +581,7 @@ router.patch(
 router.patch(
   "/admin/:id/status",
   protect,
-  authorize("admin"),
+  authorize("superadmin"),
   async (req, res) => {
     try {
       if (!validId(req.params.id)) {
@@ -804,7 +801,7 @@ router.patch(
 router.patch(
   "/admin/:id/counter-payment",
   protect,
-  authorize("admin"),
+  authorize("superadmin"),
   async (req, res) => {
     try {
       if (!validId(req.params.id)) {
@@ -961,10 +958,7 @@ router.post("/:id/upi-reference", protect, async (req, res) => {
       return fail(res, 404, "Order not found.");
     }
 
-    if (
-      String(order.userId) !== String(req.user._id) &&
-      req.user.role !== "admin"
-    ) {
+    if (String(order.userId) !== String(req.user._id)) {
       return fail(res, 403, "Not authorized to update this order.");
     }
 
@@ -1087,7 +1081,7 @@ router.get("/admin/seats", protect, authorize("admin"), async (req, res) => {
 // ADMIN MANUAL SEAT ASSIGNMENT
 // ============================================
 
-router.patch("/admin/:id/seat", protect, authorize("admin"), async (req, res) => {
+router.patch("/admin/:id/seat", protect, authorize("superadmin"), async (req, res) => {
   try {
     if (!validId(req.params.id)) {
       return fail(res, 400, "Invalid order ID.");

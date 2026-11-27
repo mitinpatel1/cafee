@@ -7,8 +7,56 @@ const FranchiseIngredient = require('../models/FranchiseIngredient');
 const MenuItem = require('../models/MenuItem');
 const { protect, authorize } = require('../middleware/auth');
 const { seedFranchiseMenu } = require('../services/seedMenu');
+const { releaseSeat } = require('../services/seatService');
 
 const router = express.Router();
+const COUNTER_METHODS = ['Counter Cash', 'Counter UPI', 'Cash on Pickup'];
+const NEXT_ORDER_STATUS = {
+  Pending: ['Confirmed', 'Cancelled'],
+  Confirmed: ['Preparing', 'Cancelled'],
+  Preparing: ['Ready'],
+  Ready: ['Picked Up'],
+};
+
+const notifyFranchiseOrder = (req, order) => {
+  const io = req.app.get('io');
+  if (!io || !order) return;
+
+  const userId = order.userId?._id || order.userId;
+  const franchiseId = order.franchiseId?._id || order.franchiseId;
+  const payload = {
+    orderId: order._id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    seatNumber: order.seatNumber || null,
+    estimatedReadyTime: order.estimatedReadyTime || null,
+    order,
+  };
+
+  io.to('kitchen').emit('order_status_updated', payload);
+  io.to(`order_${order._id}`).emit('order_status_updated', payload);
+  io.to(`order_${order._id}`).emit('order_tracking_update', payload);
+  if (userId) io.to(`user_${userId}`).emit('order_status_updated', payload);
+  if (franchiseId) io.to(`franchise_${franchiseId}`).emit('franchise_order_updated', order);
+};
+
+const notifyFranchisePayment = (req, order) => {
+  const io = req.app.get('io');
+  if (!io || !order) return;
+
+  const userId = order.userId?._id || order.userId;
+  const payload = {
+    orderId: order._id,
+    paymentStatus: order.paymentStatus,
+    seatNumber: order.seatNumber || null,
+    order,
+  };
+
+  io.to('kitchen').emit('payment_confirmed', payload);
+  io.to(`order_${order._id}`).emit('payment_confirmed', payload);
+  if (userId) io.to(`user_${userId}`).emit('payment_confirmed', payload);
+};
 
 // Public registration creates a franchise OWNER, never a service administrator.
 // After registration the frontend returns to the customer website.
@@ -92,6 +140,135 @@ router.get('/orders', protect, authorize('franchise'), async (req, res) => {
       .sort({ createdAt: -1 });
     res.json({ success: true, orders });
   } catch (_err) { res.status(500).json({ success: false, message: 'Unable to load franchise orders.' }); }
+});
+
+router.patch('/orders/:id/status', protect, authorize('franchise'), async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID.' });
+    }
+
+    const franchises = await Franchise.find({ ownerId: req.user._id }).select('_id');
+    const franchiseIds = franchises.map(franchise => franchise._id);
+    const order = await Order.findOne({
+      _id: req.params.id,
+      franchiseId: { $in: franchiseIds },
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found in your franchises.' });
+
+    const { status, readyInMinutes } = req.body || {};
+    if (!NEXT_ORDER_STATUS[order.status]?.includes(status)) {
+      return res.status(400).json({ success: false, message: `Cannot change ${order.status} to ${status}.` });
+    }
+    if (status === 'Cancelled' && order.paymentStatus === 'Paid') {
+      return res.status(409).json({ success: false, message: 'Refund a paid order before cancelling.' });
+    }
+    if (status !== 'Cancelled' && order.paymentStatus !== 'Paid') {
+      return res.status(409).json({ success: false, message: 'Verify payment before accepting the order.' });
+    }
+    if (status === 'Confirmed' && (!Number.isInteger(order.seatNumber) || order.seatNumber < 1)) {
+      return res.status(409).json({ success: false, message: 'Customer must choose a seat before order confirmation.' });
+    }
+
+    const update = { status };
+    if (status === 'Confirmed' || status === 'Preparing') {
+      const minutes = Number(readyInMinutes);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 180) {
+        return res.status(400).json({ success: false, message: 'Preparation time must be 1–180 minutes.' });
+      }
+      update.readyInMinutes = minutes;
+      update.estimatedReadyTime = new Date(Date.now() + minutes * 60_000);
+      update.pickupTime = `Ready in about ${minutes} minutes`;
+    } else if (status === 'Ready') {
+      update.readyInMinutes = 0;
+      update.estimatedReadyTime = new Date();
+      update.pickupTime = 'Ready for pickup';
+    } else if (status === 'Picked Up') {
+      update.pickupTime = 'Collected';
+    } else {
+      update.cancelReason = 'Cancelled by Franchise';
+      update.pickupTime = 'Cancelled';
+    }
+
+    const updated = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        franchiseId: { $in: franchiseIds },
+        status: order.status,
+        paymentStatus: status === 'Cancelled' ? { $ne: 'Paid' } : 'Paid',
+        ...(status === 'Confirmed' ? { seatNumber: { $type: 'number', $gte: 1 } } : {}),
+      },
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+    if (!updated) return res.status(409).json({ success: false, message: 'Order changed. Refresh and retry.' });
+
+    if (status === 'Picked Up' || status === 'Cancelled') {
+      try {
+        await releaseSeat(updated._id);
+      } catch (error) {
+        console.error('Franchise seat release:', error);
+      }
+    }
+    notifyFranchiseOrder(req, updated);
+    return res.json({ success: true, order: updated });
+  } catch (error) {
+    console.error('Franchise order status:', error);
+    return res.status(500).json({ success: false, message: 'Unable to update order status.' });
+  }
+});
+
+router.patch('/orders/:id/collect-cash', protect, authorize('franchise'), async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID.' });
+    }
+
+    const franchises = await Franchise.find({ ownerId: req.user._id }).select('_id');
+    const franchiseIds = franchises.map(franchise => franchise._id);
+    const order = await Order.findOne({
+      _id: req.params.id,
+      franchiseId: { $in: franchiseIds },
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found in your franchises.' });
+    if (!COUNTER_METHODS.includes(order.paymentMethod) || order.status !== 'Pending') {
+      return res.status(409).json({ success: false, message: 'Order is not eligible for counter payment.' });
+    }
+    if (order.paymentStatus === 'Paid') {
+      return res.json({ success: true, message: 'Payment already received.', order });
+    }
+    if (order.paymentStatus !== 'Pending') {
+      return res.status(409).json({ success: false, message: 'Payment cannot be confirmed in this state.' });
+    }
+
+    const reference = String(req.body?.reference || '').trim();
+    if (order.paymentMethod === 'Counter UPI' && (reference.length < 4 || reference.length > 120)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid UPI transaction reference.' });
+    }
+
+    const paidOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        franchiseId: { $in: franchiseIds },
+        paymentStatus: 'Pending',
+        status: 'Pending',
+      },
+      { $set: { paymentStatus: 'Paid', counterPaymentReference: reference.slice(0, 120) } },
+      { new: true, runValidators: true }
+    );
+    if (!paidOrder) return res.status(409).json({ success: false, message: 'Payment state changed. Refresh and retry.' });
+
+    notifyFranchiseOrder(req, paidOrder);
+    notifyFranchisePayment(req, paidOrder);
+    return res.json({
+      success: true,
+      message: 'Payment confirmed. Customer can now select an available seat.',
+      order: paidOrder,
+    });
+  } catch (error) {
+    console.error('Franchise counter payment:', error);
+    return res.status(500).json({ success: false, message: 'Unable to confirm counter payment.' });
+  }
 });
 
 // Owner-scoped outlet profile and pantry inventory. Every read/write validates ownership.

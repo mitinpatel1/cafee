@@ -21,7 +21,7 @@ export const CategoryFilter = ({ selectedCategory, onSelectCategory }) => {
         scrollbarWidth: 'none',
       }}
     >
-      {categories.map((cat) => {
+      {categories.map((cat) => { 
         const isSelected = selectedCategory === cat.id;
         return (
           <button
