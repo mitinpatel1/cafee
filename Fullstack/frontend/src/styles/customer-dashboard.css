@@ -4,8 +4,8 @@
    Scoped to .caf-dashboard-shell: admin and owner UI are untouched.
    ========================================================= */
 .caf-dashboard-shell {
-  --caf-orange: #ff7909;
-  --caf-orange-dark: #ec6500;
+  --caf-orange: #730042;
+  --caf-orange-dark: #550030;
   --caf-text: #171717;
   --caf-muted: #686868;
   --caf-line: #efebe7;
@@ -15,7 +15,7 @@
   min-height: 100vh;
   color: var(--caf-text);
   background: radial-gradient(ellipse at 27% 70%, #fbf4ec, #fffaf5 40%, #fff 85%);
-  font-family: 'Poppins', 'DM Sans', sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Poppins', 'DM Sans', sans-serif;
 }
 
 .caf-dashboard-shell *,
@@ -70,7 +70,7 @@
   font-weight: 700;
   line-height: 1.5;
   letter-spacing: -.5px;
-  color: #f37508;
+  color: #730042;
   white-space: nowrap;
 }
 
@@ -107,7 +107,7 @@
 
 .caf-side-link:hover {
   color: var(--caf-orange-dark);
-  background: #fff4e9;
+  background: #fdf2f7;
   transform: translateX(2px);
 }
 
@@ -157,7 +157,7 @@
   position: absolute;
   height: 140px;
   width: 270px;
-  background: #ffdec0;
+  background: #f3c4db;
   border-radius: 45% 55% 0 0;
   bottom: -89px;
   left: -18px;
@@ -165,7 +165,7 @@
 }
 
 .caf-cutlery-art {
-  color: #ffad60;
+  color: #a61e63;
   display: flex;
   position: relative;
   gap: 1px;
@@ -213,8 +213,8 @@
 }
 
 .caf-top-search:focus-within {
-  border-color: #ffa35e;
-  box-shadow: 0 0 0 3px #ffeedf;
+  border-color: #730042;
+  box-shadow: 0 0 0 3px rgba(115, 0, 66, 0.15);
 }
 
 .caf-top-search input {
@@ -698,10 +698,10 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  color: #eb6807;
+  color: #730042;
   background: rgba(255, 255, 255, .92);
   box-shadow: 0 1px 4px rgba(57, 30, 14, .06);
-  border: 1px solid #ffdcc5;
+  border: 1px solid #f3c4db;
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 10px;
@@ -901,7 +901,7 @@
 }
 
 .caf-floating-cart strong {
-  color: #ffad65;
+  color: #a61e63;
 }
 
 /* Existing checkout, profile, history, and cart screens stay functional but inherit warm customer accents. */
@@ -946,7 +946,7 @@
 
 .caf-dashboard-shell .portal-form input:focus,
 .caf-dashboard-shell .portal-form textarea:focus {
-  border-color: #ff953a;
+  border-color: #730042;
 }
 
 /* Responsive grid and mobile drawer */

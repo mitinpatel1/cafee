@@ -260,6 +260,73 @@ const foodImages = {
 };
 
 // ==========================================
+// ITEM QUANTITY & PORTION DESCRIPTIONS
+// ==========================================
+
+const itemDescriptions = {
+  // Breakfast
+  "Masala Dosa": "1 Crispy Dosa with spiced potato filling, served with Sambar & 2 Chutneys (Serves 1)",
+  "Idli Sambar": "2 Pcs Steamed soft Idlis served with hot Sambar & Coconut Chutney",
+  "Poha": "1 Plate (approx. 250g) freshly tempered flattened rice with peanuts, onions & sev",
+  "Aloo Paratha": "1 Large Stuffed Paratha served with fresh Curd & mixed Pickle",
+  "Veg Upma": "1 Plate (approx. 250g) roasted semolina with fresh veggies & coconut chutney",
+  "Chole Bhature": "2 Pcs Fluffy golden Bhature with spicy Punjabi Chole & onion salad",
+  "Paneer Sandwich": "2 Grilled triangular quarters loaded with fresh spiced paneer & mint chutney",
+  "Bread Omelette": "2 Fresh toasted bread slices with a 2-egg masala omelette",
+  "Masala Uttapam": "1 Thick savory pancake topped with onion, tomato & chilies (Serves 1)",
+  "Veg Breakfast Wrap": "1 Jumbo roll filled with sautéed veggies, corn & creamy dressing",
+
+  // Lunch
+  "Veg Thali": "Full Meal: 3 Rotis, Rice, Dal, Paneer Gravy, Dry Veg, Salad & Sweet (Serves 1)",
+  "Paneer Butter Masala": "1 Bowl (approx. 300g) rich butter tomato gravy with cottage cheese cubes (Serves 1-2)",
+  "Dal Tadka Rice": "1 Bowl aromatic Jeera Rice with 1 Bowl yellow Dal Tadka (Serves 1)",
+  "Rajma Chawal": "1 Large Plate Steamed Basmati Rice with authentic Punjabi Rajma (Serves 1)",
+  "Chole Rice": "1 Large Plate fragrant Steamed Rice topped with spicy Punjabi Chole (Serves 1)",
+  "Jeera Rice & Dal Makhani": "1 Bowl slow-cooked creamy Dal Makhani with fragrant Jeera Rice (Serves 1)",
+  "Mixed Veg Curry & Roti": "4 Fresh Tawa Rotis with seasonal mixed vegetable curry (Serves 1)",
+  "Palak Paneer": "1 Bowl (approx. 300g) smooth spiced spinach gravy with soft paneer cubes (Serves 1-2)",
+  "Veg Biryani": "1 Dum Biryani Plate (approx. 350g) with aromatic spices, served with Raita (Serves 1)",
+  "Sambar Rice": "1 Large Bowl (approx. 350g) South Indian spiced lentil rice with papad (Serves 1)",
+  "Kadhi Chawal": "1 Large Plate Steamed Rice with authentic Punjabi Pakoda Kadhi (Serves 1)",
+  "Egg Curry & Rice": "2 Boiled Eggs in rich spiced onion-tomato curry served with Steamed Rice (Serves 1)",
+  "Egg Curry": "2 Boiled Eggs in rich spiced onion-tomato gravy (approx. 250g, Serves 1)",
+  "Chicken Curry & Rice": "2 Tender Chicken pieces in home-style spiced curry with Basmati Rice (Serves 1)",
+  "Tandoori Roti Combo": "4 Butter Tandoori Rotis with choice of Dal Makhani or Paneer Gravy (Serves 1)",
+  "Tandoori Roti": "2 Pcs Fresh clay oven-baked whole wheat Tandoori Rotis",
+  "Kadai Paneer & Roti": "1 Bowl Kadai Paneer with bell peppers, served with 3 Tawa Rotis (Serves 1)",
+  "Kadai Paneer": "1 Bowl (approx. 300g) spiced paneer with bell peppers & kadai masala (Serves 1-2)",
+
+  // Snacks
+  "Samosa Plate": "2 Pcs Crispy golden Samosas filled with spiced potatoes, served with 2 Chutneys",
+  "Veg Puff": "1 Pc Golden baked flaky puff stuffed with seasoned mixed vegetables",
+  "Paneer Puff": "1 Pc Crisp oven-baked puff pastry stuffed with spiced cottage cheese filling",
+  "Veg Burger": "1 Pc Crispy vegetable patty burger with fresh lettuce, tomato & creamy mayo",
+  "French Fries": "1 Medium Basket (approx. 150g) salted golden crispy fries with dip",
+  "Aloo Tikki Chaat": "2 Pcs Crispy spiced potato patties topped with sweet curd & tangy chutneys",
+  "Pav Bhaji": "2 Butter-toasted Pavs served with rich mashed vegetable bhaji, onion & lemon",
+  "Bhel Puri": "1 Large Bowl (approx. 200g) crunchy puffed rice tossed with tangy imli & mint chutneys",
+  "Vada Pav": "1 Pc Spicy Batata Vada inside butter-toasted pav with dry garlic chutney",
+  "Grilled Veg Sandwich": "2 Grilled 3-layered sandwich squares filled with fresh veggies & melted cheese",
+  "Paneer Roll": "1 Pc Flaky Paratha wrap packed with marinated paneer tikkas, onions & sauce",
+  "Veg Momos": "6 Pcs Steamed vegetable dumplings served with spicy red momo chili chutney",
+  "Cheese Toast": "2 Pcs Crispy toasted bread slices with melted seasoned mozzarella cheese",
+  "Chicken Sandwich": "2 Triple-layer grilled sandwich quarters with shredded spiced chicken & mayo",
+  "Dhokla Plate": "4 Pcs Soft & spongy steamed fermented gram flour dhoklas with green chilies",
+
+  // Beverages
+  "Masala Chai": "1 Cup (approx. 150ml) freshly brewed Indian spiced tea with ginger & cardamom",
+  "Filter Coffee": "1 Traditional Tumbler (approx. 150ml) authentic South Indian chicory blend coffee",
+  "Cappuccino": "1 Mug (approx. 200ml) freshly brewed espresso with rich steamed milk froth",
+  "Cold Coffee": "1 Tall Glass (approx. 300ml) thick blended chilled coffee with vanilla ice cream",
+  "Fresh Lime Soda": "1 Glass (approx. 300ml) sparkling chilled soda with fresh lime (Sweet / Salted)",
+  "Sweet Lassi": "1 Glass (approx. 300ml) thick Punjabi churned sweet yogurt topped with malai",
+  "Mango Shake": "1 Tall Glass (approx. 300ml) thick Alphonso mango shake with fresh milk",
+  "Chocolate Milkshake": "1 Tall Glass (approx. 300ml) rich chocolate ganache blended chilled milkshake",
+  "Iced Tea": "1 Tall Glass (approx. 300ml) chilled lemon peach iced black tea with fresh mint",
+  "Fresh Watermelon Juice": "1 Glass (approx. 300ml) 100% pure cold-pressed fresh watermelon juice (no water added)"
+};
+
+// ==========================================
 // CREATE DAILY MENU
 // ==========================================
 
@@ -281,8 +348,8 @@ const dailyMenu = Object.entries(menu).flatMap(
         category,
 
         description:
-          `Freshly prepared ${name.toLowerCase()} · ` +
-          `available daily while stocks last.`,
+          itemDescriptions[name] ||
+          `Freshly prepared portion of ${name.toLowerCase()} · Serves 1`,
 
         preparationTime:
           category === "Lunch"

@@ -44,8 +44,8 @@ const KIOSK_STYLES = String.raw`
 .cafe-kiosk {
   --forest: #173f35;
   --forest-dark: #102f27;
-  --orange: #ee7843;
-  --orange-dark: #d65b2e;
+  --orange: #730042;
+  --orange-dark: #550030;
   --cream: #faf9f5;
   --paper: #ffffff;
   --ink: #233b32;
@@ -68,7 +68,7 @@ const KIOSK_STYLES = String.raw`
     var(--cream);
 
   color: var(--ink);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: 'Plus Jakarta Sans', Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
 }
 
@@ -674,9 +674,15 @@ const KIOSK_STYLES = String.raw`
 }
 
 .cafe-food-info > p {
-  margin: 9px 0 17px;
-  color: #99aa9c;
-  font-size: 11px;
+  margin: 6px 0 14px;
+  color: #617366;
+  font-size: 11.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 32px;
 }
 
 .cafe-food-bottom {
@@ -728,7 +734,7 @@ const KIOSK_STYLES = String.raw`
   place-items: center;
   border: 0;
   border-radius: 7px;
-  background: #fff1df;
+  background: #fdf2f7;
   color: var(--orange-dark);
 }
 
@@ -1036,7 +1042,7 @@ const KIOSK_STYLES = String.raw`
   display: grid;
   place-items: center;
   margin-bottom: 20px;
-  background: #fff0e3;
+  background: #fdf2f7;
   color: var(--orange);
   border-radius: 16px;
 }
@@ -1199,7 +1205,7 @@ const KIOSK_STYLES = String.raw`
   place-items: center;
   margin: 0 auto 22px;
   border-radius: 50%;
-  background: #fff0e4;
+  background: #fdf2f7;
   color: var(--orange);
 }
 
@@ -1270,7 +1276,7 @@ const KIOSK_STYLES = String.raw`
 .cafe-deadline-track {
   height: 9px;
   overflow: hidden;
-  background: #f2dec7;
+  background: #f5d5e5;
   border-radius: 30px;
 }
 
@@ -1280,7 +1286,7 @@ const KIOSK_STYLES = String.raw`
   background: linear-gradient(
     90deg,
     var(--orange),
-    #f5ad64
+    #a81c63
   );
   border-radius: inherit;
   transition: width .5s linear;
@@ -1402,7 +1408,7 @@ const KIOSK_STYLES = String.raw`
   background: var(--orange);
   border-color: var(--orange);
   opacity: 1;
-  box-shadow: 0 7px 16px #ee784340;
+  box-shadow: 0 7px 16px rgba(115, 0, 66, 0.25);
 }
 
 .cafe-seat-actions {
@@ -3648,9 +3654,8 @@ return matchCategory && matchSearch && matchesVeg && matchesNonVeg; });
                             )}
                           </div>
 
-                          <p>
-                            Freshly prepared •
-                            Made with care
+                          <p title={food.description}>
+                            {food.description || "Freshly prepared • Made with care"}
                             {food.isJain ? " · Jain-friendly" : ""}
                             {Array.isArray(food.allergens) && food.allergens.length > 0
                               ? ` · Contains: ${food.allergens.join(", ")}` : ""}

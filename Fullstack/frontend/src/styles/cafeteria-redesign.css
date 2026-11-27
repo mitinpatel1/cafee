@@ -1,8 +1,8 @@
 /* UI reference: warm white workspace, vibrant orange highlights, spacious data cards. */
 .ob-portal {
-    --portal-orange: #ff7809;
-    --portal-orange-strong: #ed6900;
-    font-family: 'DM Sans', 'Poppins', system-ui, sans-serif;
+    --portal-orange: #730042;
+    --portal-orange-strong: #550030;
+    font-family: 'Plus Jakarta Sans', 'DM Sans', 'Poppins', system-ui, sans-serif;
     background: #fdfaf6 !important;
     color: #222;
 }
@@ -17,7 +17,7 @@
 }
 
 .ob-portal .ob-portal-brand-icon {
-    background: linear-gradient(145deg, #ff6d00, #ff922a);
+    background: linear-gradient(145deg, #730042, #941359);
 }
 
 .ob-portal .ob-portal-topbar {
@@ -123,8 +123,8 @@
 
 .ob-portal .cf-primary,
 .ob-portal .cf-small-primary {
-    background: #ff790a;
-    border: 1px solid #ff790a;
+    background: #730042;
+    border: 1px solid #730042;
     color: #fff;
     display: inline-flex;
     gap: 8px;
@@ -135,13 +135,13 @@
     font-size: 12px;
     min-height: 39px;
     padding: 9px 16px;
-    box-shadow: 0 3px 10px #ff790a16;
+    box-shadow: 0 3px 10px rgba(115, 0, 66, 0.15);
     text-decoration: none;
 }
 
 .ob-portal .cf-primary:hover,
 .ob-portal .cf-small-primary:hover {
-    background: #e86b08;
+    background: #550030;
     color: #fff;
 }
 
@@ -217,14 +217,15 @@
     gap: 3px;
 }
 
-.ob-portal .cf-stat-icon {
+.ob-portal .cf-stat-icon,
+.ob-portal .cf-stat-icon.orange {
     display: grid;
     place-items: center;
     width: 40px;
     height: 40px;
     border-radius: 11px;
-    color: #f7770b;
-    background: #fff0e0;
+    color: #730042;
+    background: #fdf2f7;
     margin-bottom: 7px;
 }
 
@@ -234,8 +235,8 @@
 }
 
 .ob-portal .cf-stat-icon.peach {
-    background: #fff1e8;
-    color: #f08018
+    background: #fdf2f7;
+    color: #730042;
 }
 
 .ob-portal .cf-stat-icon.amber {
@@ -430,7 +431,7 @@
     display: block;
     height: 100%;
     border-radius: 30px;
-    background: linear-gradient(90deg, #ffc488, #ff790a);
+    background: linear-gradient(90deg, #b83375, #730042);
     transition: width .3s;
     min-width: 0;
 }
@@ -704,8 +705,8 @@
 }
 
 .ob-portal .cf-tabs button.active {
-    border-color: #ff790a;
-    background: #ff790a;
+    border-color: #730042;
+    background: #730042;
     color: #fff;
 }
 
@@ -844,7 +845,7 @@
 }
 
 .ob-portal .cf-toggle.is-on {
-    background: #ff790a;
+    background: #730042;
 }
 
 .ob-portal .cf-toggle span {
@@ -1160,16 +1161,16 @@
 }
 
 .ob-portal .service-filters button.active {
-    background: #ff790a;
+    background: #730042;
     color: #fff;
-    border-color: #ff790a;
+    border-color: #730042;
 }
 
 .ob-portal .service-primary,
 .ob-portal .btn.btn-primary {
-    background: #ff790a !important;
+    background: #730042 !important;
     color: #fff;
-    border-color: #ff790a !important;
+    border-color: #730042 !important;
 }
 
 .ob-portal .cf-page .ob-status {
